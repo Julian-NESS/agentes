@@ -1,0 +1,78 @@
+╔════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
+║                                             SMART TESTER — PRE-FLIGHT                                              ║
+╚════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
+
+Recomendado: ejecutar diagnóstico inteligente antes de continuar.
+Validará readiness del sistema, cron y salud base de red.
+
+¿Desea ejecutar Smart Tester ahora? (Y/n): Y
+⏳ [2026-03-30 12:20:39] Ejecutando Smart Tester pre-flight...
+
+=== NESS Relay Smart Tester ===
+Diagnóstico inteligente de entorno, red y SNMP
+
+[Fase A] System Readiness
+[OK] Cron detectado en el sistema.
+[OK] Servicio cron habilitado.
+
+[INFO] No existe archivo de dispositivos en /home/nessdeployer/Escritorio/relay_rust/relay_rust/devices.conf.
+[INFO] Se habilitará modo interactivo para diagnóstico manual (IP/SNMP).
+
+[Asistente] No hay devices.conf. Puede ejecutar diagnóstico ingresando una IP manual.
+¿Desea ingresar una IP para prueba de PING inteligente? (Y/n): Y
+Ingrese IP/host objetivo: 10.0.0.1
+[Fase B] Network Health
+PING 10.0.0.1 (10.0.0.1) 56(84) bytes of data.
+64 bytes from 10.0.0.1: icmp_seq=1 ttl=64 time=3.86 ms
+
+--- 10.0.0.1 ping statistics ---
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+rtt min/avg/max/mdev = 3.856/3.856/3.856/0.000 ms
+[OK] Gateway 10.0.0.1 responde a ping.
+PING 10.0.0.1 (10.0.0.1) 56(84) bytes of data.
+64 bytes from 10.0.0.1: icmp_seq=1 ttl=64 time=1.70 ms
+
+--- 10.0.0.1 ping statistics ---
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+rtt min/avg/max/mdev = 1.698/1.698/1.698/0.000 ms
+[OK] Ping manual a 10.0.0.1 exitoso.
+[OK] Salida HTTPS hacia NESS disponible: https://cloud.nesshq.com/api/relay/data/
+
+¿Desea ejecutar prueba SNMP manual para esta IP? (Y/n): Y
+Versión SNMP [1/2/3] (default 2): 3
+Puerto SNMP (default 161): 
+Usuario SNMPv3: ness_user
+Auth protocol [SHA/MD5] (default SHA): 
+Auth password SNMPv3: NessD*2026
+Priv protocol [AES128/DES/NONE] (default AES128): 
+Priv password SNMPv3: NessD*2026
+[Fase C] Deep SNMP Validation
+
+Dispositivo manual_1 (10.0.0.1)
+[OK] MDT sysName leído correctamente: pfSense.home.arpa
+
+[Fase D] Local Firewall Checker
+[INFO] Si el ping está deshabilitado por política, SNMP aún puede funcionar correctamente.
+
+
+Smart Tester completado. Revisa advertencias y sugerencias para corregir antes de producción.
+
+
+✅ [2026-03-30 12:26:30] Smart Tester pre-flight finalizado
+
+
+
+
+// Esto ya no se esta mostrando en la [Fase A] //
+
+[Fase A] System Readiness
+● cron.service - Regular background program processing daemon
+     Loaded: loaded (/usr/lib/systemd/system/cron.service; enabled; preset: enabled)
+     Active: active (running) since Mon 2026-03-30 09:44:57 -05; 19min ago
+       Docs: man:cron(8)
+   Main PID: 941 (cron)
+      Tasks: 1 (limit: 6870)
+     Memory: 1.6M (peak: 9.0M)
+        CPU: 4.981s
+     CGroup: /system.slice/cron.service
+             └─941 /usr/sbin/cron -f -P

@@ -1,0 +1,379 @@
+{
+  "fortinet_specific": {
+    "ha_group": "0",
+    "ha_mode": 1,
+    "ha_priority": 128,
+    "session_rate": 0,
+    "sessions_ipv4": 7,
+    "sessions_ipv6": 62,
+    "vpn_tunnel_count": 0,
+    "vpn_tunnels": []
+  },
+  "metadata": {
+    "collection_duration_seconds": 0.89,
+    "collection_end": "2026-04-06T08:15:06-05:00",
+    "collection_start": "2026-04-06T08:15:05-05:00",
+    "description": "",
+    "device_type": "firewall",
+    "relay_type": "ness-relay",
+    "relay_version": "2.0.0",
+    "snmp_host": "192.168.10.99",
+    "snmp_port": 161,
+    "total_interfaces": 13,
+    "vendor": "fortinet",
+    "vendor_display_name": "Fortinet FortiGate"
+  },
+  "network": {
+    "collection_timestamp": "2026-04-06T08:15:05-05:00",
+    "interface_count": 13,
+    "interfaces": {
+      "1": {
+        "admin_status": "UP",
+        "discards_in": 0,
+        "discards_out": 0,
+        "errors_in": 0,
+        "errors_out": 0,
+        "index": "1",
+        "name": "port1",
+        "operational_status": "UP",
+        "speed_mbps": 1000,
+        "total_errors": 0,
+        "traffic_in_mb": 0.09,
+        "traffic_out_mb": 0.02
+      },
+      "10": {
+        "admin_status": "UP",
+        "discards_in": 0,
+        "discards_out": 0,
+        "errors_in": 0,
+        "errors_out": 0,
+        "index": "10",
+        "name": "l2t.root",
+        "operational_status": "UP",
+        "speed_mbps": 0,
+        "total_errors": 0,
+        "traffic_in_mb": 0.0,
+        "traffic_out_mb": 0.0
+      },
+      "11": {
+        "admin_status": "DOWN",
+        "discards_in": 0,
+        "discards_out": 0,
+        "errors_in": 0,
+        "errors_out": 0,
+        "index": "11",
+        "name": "ssl.root",
+        "operational_status": "DOWN",
+        "speed_mbps": 0,
+        "total_errors": 0,
+        "traffic_in_mb": 0.0,
+        "traffic_out_mb": 0.0
+      },
+      "12": {
+        "admin_status": "UP",
+        "discards_in": 0,
+        "discards_out": 2,
+        "errors_in": 0,
+        "errors_out": 0,
+        "index": "12",
+        "name": "default-mesh",
+        "operational_status": "UP",
+        "speed_mbps": 0,
+        "total_errors": 0,
+        "traffic_in_mb": 0.0,
+        "traffic_out_mb": 0.0
+      },
+      "13": {
+        "admin_status": "UP",
+        "discards_in": 0,
+        "discards_out": 0,
+        "errors_in": 0,
+        "errors_out": 0,
+        "index": "13",
+        "name": "fortilink",
+        "operational_status": "DOWN",
+        "speed_mbps": 0,
+        "total_errors": 0,
+        "traffic_in_mb": 0.0,
+        "traffic_out_mb": 0.0
+      },
+      "2": {
+        "admin_status": "UP",
+        "discards_in": 0,
+        "discards_out": 0,
+        "errors_in": 0,
+        "errors_out": 0,
+        "index": "2",
+        "name": "port2",
+        "operational_status": "UP",
+        "speed_mbps": 1000,
+        "total_errors": 0,
+        "traffic_in_mb": 0.08,
+        "traffic_out_mb": 0.0
+      },
+      "3": {
+        "admin_status": "UP",
+        "discards_in": 0,
+        "discards_out": 0,
+        "errors_in": 0,
+        "errors_out": 0,
+        "index": "3",
+        "name": "port3",
+        "operational_status": "UP",
+        "speed_mbps": 1000,
+        "total_errors": 0,
+        "traffic_in_mb": 0.08,
+        "traffic_out_mb": 0.0
+      },
+      "4": {
+        "admin_status": "UP",
+        "discards_in": 0,
+        "discards_out": 0,
+        "errors_in": 0,
+        "errors_out": 0,
+        "index": "4",
+        "name": "port4",
+        "operational_status": "UP",
+        "speed_mbps": 1000,
+        "total_errors": 0,
+        "traffic_in_mb": 0.08,
+        "traffic_out_mb": 0.0
+      },
+      "5": {
+        "admin_status": "UP",
+        "discards_in": 0,
+        "discards_out": 0,
+        "errors_in": 0,
+        "errors_out": 0,
+        "index": "5",
+        "name": "port5",
+        "operational_status": "UP",
+        "speed_mbps": 1000,
+        "total_errors": 0,
+        "traffic_in_mb": 0.08,
+        "traffic_out_mb": 0.0
+      },
+      "6": {
+        "admin_status": "UP",
+        "discards_in": 0,
+        "discards_out": 0,
+        "errors_in": 0,
+        "errors_out": 0,
+        "index": "6",
+        "name": "port6",
+        "operational_status": "UP",
+        "speed_mbps": 1000,
+        "total_errors": 0,
+        "traffic_in_mb": 0.08,
+        "traffic_out_mb": 0.0
+      },
+      "7": {
+        "admin_status": "UP",
+        "discards_in": 0,
+        "discards_out": 0,
+        "errors_in": 0,
+        "errors_out": 0,
+        "index": "7",
+        "name": "port7",
+        "operational_status": "UP",
+        "speed_mbps": 1000,
+        "total_errors": 0,
+        "traffic_in_mb": 0.08,
+        "traffic_out_mb": 0.0
+      },
+      "8": {
+        "admin_status": "UP",
+        "discards_in": 0,
+        "discards_out": 0,
+        "errors_in": 0,
+        "errors_out": 0,
+        "index": "8",
+        "name": "port8",
+        "operational_status": "UP",
+        "speed_mbps": 1000,
+        "total_errors": 0,
+        "traffic_in_mb": 0.08,
+        "traffic_out_mb": 0.0
+      },
+      "9": {
+        "admin_status": "UP",
+        "discards_in": 0,
+        "discards_out": 0,
+        "errors_in": 0,
+        "errors_out": 0,
+        "index": "9",
+        "name": "naf.root",
+        "operational_status": "UP",
+        "speed_mbps": 0,
+        "total_errors": 0,
+        "traffic_in_mb": 0.0,
+        "traffic_out_mb": 0.0
+      }
+    }
+  },
+  "performance": {
+    "collection_timestamp": "2026-04-06T08:15:05-05:00",
+    "cpu": {
+      "cpu_cores": [
+        {
+          "core": 0,
+          "usage": 5.0
+        }
+      ],
+      "cpu_usage_percent": 5.0,
+      "load_15min": 0.0,
+      "load_1min": 0.0,
+      "load_5min": 0.0
+    },
+    "disk": {
+      "1": {
+        "free_gb": 29.35,
+        "index": "1",
+        "path": "/",
+        "percent_used": 0.01,
+        "source_raw": {
+          "disk_percent_raw": 0.01,
+          "disk_total_raw_gb": 29.36,
+          "disk_used_raw_gb": 0.0
+        },
+        "total_gb": 29.36,
+        "used_gb": 0.0
+      }
+    },
+    "memory": {
+      "mem_available_mb": 1095.68,
+      "mem_free_mb": 1095.68,
+      "mem_total_mb": 1925.12,
+      "mem_usage_percent": 43.0,
+      "mem_used_mb": 829.44,
+      "swap_free_mb": 0.0,
+      "swap_total_mb": 0.0
+    }
+  },
+  "performance_analysis": {
+    "alerts": [],
+    "performance_status": "ok",
+    "timestamp": "2026-04-06T08:15:06-05:00",
+    "total_alerts": 0,
+    "total_warnings": 0,
+    "warnings": []
+  },
+  "security": {
+    "icmp_security": {
+      "icmp_in_dest_unreachs": 0,
+      "icmp_in_echo_reps": 0,
+      "icmp_in_echos": 0,
+      "icmp_in_errors": 0,
+      "icmp_in_msgs": 2,
+      "icmp_in_redirects": 0,
+      "icmp_in_time_excds": 0
+    },
+    "ip_security": {
+      "ip_frag_fails": 0,
+      "ip_frag_oks": 0,
+      "ip_in_addr_errors": 0,
+      "ip_in_discards": 0,
+      "ip_in_hdr_errors": 0,
+      "ip_in_receives": 339,
+      "ip_in_unknown_protos": 0
+    },
+    "normalized": {
+      "icmp": {
+        "echo_reply_rate_percent": 0.0,
+        "in_echo_reps": 0,
+        "in_echos": 0,
+        "in_errors": 0,
+        "in_msgs": 2
+      },
+      "ip": {
+        "error_rate_percent": 0.0,
+        "frag_fails": 0,
+        "frag_oks": 0,
+        "fragmentation_rate_percent": 0.0,
+        "in_addr_errors": 0,
+        "in_discards": 0,
+        "in_hdr_errors": 0,
+        "in_receives": 339,
+        "in_unknown_protos": 0
+      },
+      "snmp": {
+        "asn_parse_errs": 0,
+        "bad_community_names": 0,
+        "bad_community_rate_percent": 0.0,
+        "bad_versions": 0,
+        "gen_errs": 0,
+        "in_pkts": 0
+      },
+      "tcp": {
+        "active_opens": 0,
+        "attempt_fails": 0,
+        "current_estab": 0,
+        "estab_resets": 0,
+        "in_segs": 0,
+        "out_rsts": 0,
+        "out_segs": 0,
+        "passive_opens": 0,
+        "retrans_segs": 0,
+        "retransmission_rate_percent": 0.0
+      },
+      "udp": {
+        "error_rate_percent": 0.0,
+        "in_datagrams": 46,
+        "in_errors": 0,
+        "no_ports": 0,
+        "out_datagrams": 47
+      }
+    },
+    "snmp_security": {
+      "snmp_in_asn_parse_errs": 0,
+      "snmp_in_bad_community_names": 0,
+      "snmp_in_bad_community_uses": 0,
+      "snmp_in_bad_versions": 0,
+      "snmp_in_gen_errs": 0,
+      "snmp_in_pkts": 0
+    },
+    "tcp_security": {
+      "retransmission_rate_percent": 0.0,
+      "tcp_active_opens": 0,
+      "tcp_attempt_fails": 0,
+      "tcp_curr_estab": 0,
+      "tcp_estab_resets": 0,
+      "tcp_in_segs": 0,
+      "tcp_out_rsts": 0,
+      "tcp_out_segs": 0,
+      "tcp_passive_opens": 0,
+      "tcp_retrans_segs": 0
+    },
+    "udp_security": {
+      "udp_in_datagrams": 46,
+      "udp_in_errors": 0,
+      "udp_no_ports": 0,
+      "udp_out_datagrams": 47
+    }
+  },
+  "security_analysis": {
+    "alerts": [],
+    "security_status": "ok",
+    "timestamp": "2026-04-06T08:15:06-05:00",
+    "total_alerts": 0,
+    "total_warnings": 0,
+    "warnings": []
+  },
+  "system": {
+    "basic_info": {
+      "sys_contact": "",
+      "sys_descr": "",
+      "sys_location": "",
+      "sys_name": "FortiGate-VM64",
+      "sys_uptime": {
+        "days": 0,
+        "formatted": "0d 0h 22m 13s",
+        "hours": 0,
+        "human": "0d 0h 22m 13s",
+        "minutes": 22,
+        "seconds": 13,
+        "total_seconds": 1333
+      }
+    }
+  }
+}

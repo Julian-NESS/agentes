@@ -1,0 +1,340 @@
+{
+  "metadata": {
+    "collection_duration_seconds": 1.53,
+    "collection_end": "2026-03-24T08:42:56-05:00",
+    "collection_start": "2026-03-24T08:42:55-05:00",
+    "description": "",
+    "device_type": "firewall",
+    "relay_type": "ness-relay",
+    "relay_version": "2.0.0",
+    "snmp_host": "10.0.0.1",
+    "snmp_port": 161,
+    "total_interfaces": 6,
+    "vendor": "pfsense",
+    "vendor_display_name": "pfSense"
+  },
+  "network": {
+    "interface_count": 6,
+    "interfaces": {
+      "1": {
+        "admin_status": "UP",
+        "discards_in": 0,
+        "discards_out": 0,
+        "errors_in": 0,
+        "errors_out": 0,
+        "index": "1",
+        "name": "em0",
+        "operational_status": "UP",
+        "speed_mbps": 1000,
+        "total_errors": 0,
+        "traffic_in_mb": 159.61,
+        "traffic_out_mb": 7.97
+      },
+      "2": {
+        "admin_status": "UP",
+        "discards_in": 0,
+        "discards_out": 0,
+        "errors_in": 0,
+        "errors_out": 0,
+        "index": "2",
+        "name": "em1",
+        "operational_status": "UP",
+        "speed_mbps": 1000,
+        "total_errors": 0,
+        "traffic_in_mb": 7.69,
+        "traffic_out_mb": 160.59
+      },
+      "3": {
+        "admin_status": "DOWN",
+        "discards_in": 0,
+        "discards_out": 0,
+        "errors_in": 0,
+        "errors_out": 0,
+        "index": "3",
+        "name": "enc0",
+        "operational_status": "DOWN",
+        "speed_mbps": 0,
+        "total_errors": 0,
+        "traffic_in_mb": 0.0,
+        "traffic_out_mb": 0.0
+      },
+      "4": {
+        "admin_status": "UP",
+        "discards_in": 0,
+        "discards_out": 0,
+        "errors_in": 0,
+        "errors_out": 0,
+        "index": "4",
+        "name": "lo0",
+        "operational_status": "UP",
+        "speed_mbps": 0,
+        "total_errors": 0,
+        "traffic_in_mb": 0.0,
+        "traffic_out_mb": 0.0
+      },
+      "5": {
+        "admin_status": "DOWN",
+        "discards_in": 0,
+        "discards_out": 0,
+        "errors_in": 0,
+        "errors_out": 0,
+        "index": "5",
+        "name": "pflog0",
+        "operational_status": "DOWN",
+        "speed_mbps": 0,
+        "total_errors": 0,
+        "traffic_in_mb": 0.0,
+        "traffic_out_mb": 0.0
+      },
+      "6": {
+        "admin_status": "DOWN",
+        "discards_in": 0,
+        "discards_out": 0,
+        "errors_in": 0,
+        "errors_out": 0,
+        "index": "6",
+        "name": "pfsync0",
+        "operational_status": "DOWN",
+        "speed_mbps": 0,
+        "total_errors": 0,
+        "traffic_in_mb": 0.0,
+        "traffic_out_mb": 0.0
+      }
+    }
+  },
+  "performance": {
+    "cpu": {
+      "cpu_idle_percent": 98.0,
+      "cpu_system_percent": 0.0,
+      "cpu_usage_percent": 2.0,
+      "cpu_user_percent": 0.0,
+      "load_15min": 0.36,
+      "load_1min": 0.42,
+      "load_5min": 0.42
+    },
+    "disk": {
+      "1": {
+        "free_gb": 15.17,
+        "index": "1",
+        "path": "/",
+        "percent_used": 9.0,
+        "source_raw": {
+          "disk_percent_raw": 9.0,
+          "disk_total_raw_gb": 18.39,
+          "disk_used_raw_gb": 1.74
+        },
+        "total_gb": 18.39,
+        "used_gb": 1.74
+      },
+      "2": {
+        "free_gb": 0.0,
+        "index": "2",
+        "path": "/var/dhcpd/dev",
+        "percent_used": 0.0,
+        "source_raw": {
+          "disk_percent_raw": 0.0,
+          "disk_total_raw_gb": 0.0,
+          "disk_used_raw_gb": 0.0
+        },
+        "total_gb": 0.0,
+        "used_gb": 0.0
+      },
+      "3": {
+        "free_gb": 0.0,
+        "index": "3",
+        "path": "/dev",
+        "percent_used": 0.0,
+        "source_raw": {
+          "disk_percent_raw": 0.0,
+          "disk_total_raw_gb": 0.0,
+          "disk_used_raw_gb": 0.0
+        },
+        "total_gb": 0.0,
+        "used_gb": 0.0
+      },
+      "4": {
+        "free_gb": 0.0,
+        "index": "4",
+        "path": "/var/run",
+        "percent_used": 3.0,
+        "source_raw": {
+          "disk_percent_raw": 3.0,
+          "disk_total_raw_gb": 0.0,
+          "disk_used_raw_gb": 0.0
+        },
+        "total_gb": 0.0,
+        "used_gb": 0.0
+      }
+    },
+    "memory": {
+      "mem_available_mb": 3573.76,
+      "mem_free_mb": 3573.76,
+      "mem_total_mb": 4034.56,
+      "mem_usage_percent": 11.4,
+      "mem_used_mb": 460.8,
+      "swap_free_mb": 1024.0,
+      "swap_total_mb": 1024.0
+    }
+  },
+  "performance_analysis": {
+    "alerts": [],
+    "performance_status": "ok",
+    "timestamp": "2026-03-24T08:42:56-05:00",
+    "total_alerts": 0,
+    "total_warnings": 0,
+    "warnings": []
+  },
+  "pfsense_specific": {
+    "firewall_logs": {
+      "pf_block_bytes": 0,
+      "pf_block_packets": 0,
+      "pf_log_bytes": 0,
+      "pf_log_entries": 0
+    },
+    "firewall_states": {
+      "pf_states_current": 0,
+      "pf_states_inserts": 0,
+      "pf_states_removals": 0,
+      "pf_states_searches": 0
+    },
+    "internet_channels": {
+      "channels": [],
+      "summary": {
+        "channels_down": 0,
+        "channels_up": 0,
+        "netwatch_available": false,
+        "queues_available": false,
+        "total_channels": 0,
+        "total_traffic_in_mb": 0,
+        "total_traffic_out_mb": 0
+      }
+    },
+    "wan_interfaces": [
+      {
+        "in_bytes": 167358869,
+        "index": "1",
+        "name": "em0",
+        "out_bytes": 8354695,
+        "speed_mbps": 1000
+      }
+    ]
+  },
+  "security": {
+    "icmp_security": {
+      "icmp_in_dest_unreachs": 0,
+      "icmp_in_echo_reps": 0,
+      "icmp_in_echos": 0,
+      "icmp_in_errors": 0,
+      "icmp_in_msgs": 5497,
+      "icmp_in_redirects": 0,
+      "icmp_in_time_excds": 0
+    },
+    "ip_security": {
+      "ip_frag_fails": 0,
+      "ip_frag_oks": 6,
+      "ip_in_addr_errors": 0,
+      "ip_in_discards": 0,
+      "ip_in_hdr_errors": 0,
+      "ip_in_receives": 217762,
+      "ip_in_unknown_protos": 0
+    },
+    "normalized": {
+      "icmp": {
+        "echo_reply_rate_percent": 0.0,
+        "in_echo_reps": 0,
+        "in_echos": 0,
+        "in_errors": 0,
+        "in_msgs": 5497
+      },
+      "ip": {
+        "error_rate_percent": 0.0,
+        "frag_fails": 0,
+        "frag_oks": 6,
+        "fragmentation_rate_percent": 0.0,
+        "in_addr_errors": 0,
+        "in_discards": 0,
+        "in_hdr_errors": 0,
+        "in_receives": 217762,
+        "in_unknown_protos": 0
+      },
+      "snmp": {
+        "asn_parse_errs": 0,
+        "bad_community_names": 0,
+        "bad_community_rate_percent": 0.0,
+        "bad_versions": 0,
+        "gen_errs": 0,
+        "in_pkts": 732
+      },
+      "tcp": {
+        "active_opens": 62,
+        "attempt_fails": 3,
+        "current_estab": 0,
+        "estab_resets": 3,
+        "in_segs": 1564,
+        "out_rsts": 51,
+        "out_segs": 2556,
+        "passive_opens": 13,
+        "retrans_segs": 0,
+        "retransmission_rate_percent": 0.0
+      },
+      "udp": {
+        "error_rate_percent": 0.0,
+        "in_datagrams": 1261,
+        "in_errors": 0,
+        "no_ports": 0,
+        "out_datagrams": 1471
+      }
+    },
+    "snmp_security": {
+      "snmp_in_asn_parse_errs": 0,
+      "snmp_in_bad_community_names": 0,
+      "snmp_in_bad_community_uses": 0,
+      "snmp_in_bad_versions": 0,
+      "snmp_in_gen_errs": 0,
+      "snmp_in_pkts": 732
+    },
+    "tcp_security": {
+      "retransmission_rate_percent": 0.0,
+      "tcp_active_opens": 62,
+      "tcp_attempt_fails": 3,
+      "tcp_curr_estab": 0,
+      "tcp_estab_resets": 3,
+      "tcp_in_segs": 1564,
+      "tcp_out_rsts": 51,
+      "tcp_out_segs": 2556,
+      "tcp_passive_opens": 13,
+      "tcp_retrans_segs": 0
+    },
+    "udp_security": {
+      "udp_in_datagrams": 1261,
+      "udp_in_errors": 0,
+      "udp_no_ports": 0,
+      "udp_out_datagrams": 1471
+    }
+  },
+  "security_analysis": {
+    "alerts": [],
+    "security_status": "ok",
+    "timestamp": "2026-03-24T08:42:56-05:00",
+    "total_alerts": 0,
+    "total_warnings": 0,
+    "warnings": []
+  },
+  "system": {
+    "basic_info": {
+      "sys_contact": "nobody@nowhere.invalid",
+      "sys_descr": "pfSense pfSense.home.arpa 2.7.2-RELEASE FreeBSD 14.0-CURRENT amd64",
+      "sys_location": "somewhere",
+      "sys_name": "pfSense.home.arpa",
+      "sys_uptime": {
+        "days": 0,
+        "formatted": "0d 0h 48m 5s",
+        "hours": 0,
+        "human": "0d 0h 48m 5s",
+        "minutes": 48,
+        "seconds": 5,
+        "total_seconds": 2885
+      }
+    }
+  }
+}
