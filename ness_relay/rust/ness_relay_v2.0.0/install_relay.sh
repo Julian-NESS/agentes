@@ -24,6 +24,10 @@
 #             en el mismo directorio (o en dist/).
 ###############################################################################
 
+# Proximos cambios
+# Ajustar el design de la presentacion de la instalacion para que se pueda acomodar dinamicamente a cualquier pestaña
+# Utilizar el design de NESS en la version 5
+
 # Colores corporativos NESS — Nueva Paleta
 WHITE='\033[1;37m'            # #FFFFFF - Color principal
 GREEN='\033[38;2;40;167;69m'  # #28a745 - Mensajes de éxito
