@@ -8,9 +8,6 @@
 # El Engine es vendor-agnostic: le pregunta al Profile qué OIDs consultar,
 # usa el SnmpClient para obtener datos crudos, y le pide al Profile que
 # normalice los resultados.
-""""""
-#Hola buenas noches
-
 
 # ==============================================================================
 
