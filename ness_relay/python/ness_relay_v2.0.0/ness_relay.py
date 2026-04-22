@@ -20,6 +20,8 @@
 # === PASO 0: Inicialización pre-import ===
 # El crypto backend DEBE cargarse ANTES de importar pysnmp para que
 # SNMPv3 funcione correctamente en binarios PyInstaller.
+
+# Este es un comentario de prueba
 from utils.crypto_init import init_crypto_backend, setup_unbuffered_output, suppress_warnings
 
 suppress_warnings()
