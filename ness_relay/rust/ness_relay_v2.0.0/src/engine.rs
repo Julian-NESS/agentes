@@ -50,6 +50,15 @@ impl CollectionEngine {
     // -------------------------------------------------------------------------
     pub async fn collect_device(&self, device: &DeviceConfig) -> Value {
         let device_json = device.to_json();
+        // Obtener ISP desde caché (set en arranque). Si no hay cache, intentar detección rápida con timeout
+let isp_info = if let Some(cached) = crate::utils::isp::get_cached_isp().await {
+    Some(cached)
+} else {
+    match tokio::time::timeout(std::time::Duration::from_secs(5), crate::utils::isp::detect_isp()).await {
+        Ok(Ok(info)) => Some(info),
+        _ => None,
+    }
+};
         let collection_start = now_iso();
         let timer = Instant::now();
         info!(
@@ -140,6 +149,11 @@ impl CollectionEngine {
 
         // Finalizar metadata con tiempos de recolección
         let elapsed = timer.elapsed().as_secs_f64();
+        if let Some(info) = &isp_info {
+    if let Some(obj) = payload.as_object_mut() {
+        obj.insert("isp_info".to_string(), serde_json::to_value(info).unwrap_or(serde_json::Value::Null));
+    }
+}
         if let Some(meta) = payload.get_mut("metadata").and_then(|m| m.as_object_mut()) {
             meta.insert("collection_end".to_string(), Value::String(now_iso()));
             meta.insert("collection_duration_seconds".to_string(),
@@ -158,10 +172,39 @@ impl CollectionEngine {
             + payload.get("performance_analysis")
             .and_then(|v| v.get("total_warnings")).and_then(|v| v.as_u64()).unwrap_or(0);
 
+            // Inyectar información del ISP si está disponible
+            if let Some(info) = isp_info {
+                // Intentar extraer la IP WAN reportada por SNMP desde datos del vendor
+                let mut snmp_wan_ip: Option<String> = None;
+                if let Some(v) = payload.get(&vendor_key) {
+                    if let Some(ipv) = v.get("wan_ip").and_then(|x| x.as_str()) {
+                        snmp_wan_ip = Some(ipv.to_string());
+                    } else if let Some(arr) = v.get("wan_interfaces").and_then(|x| x.as_array()) {
+                        for iface in arr {
+                            if let Some(ipstr) = iface.get("ip").and_then(|s| s.as_str()) {
+                                snmp_wan_ip = Some(ipstr.to_string());
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // Si tenemos IP SNMP, comparar y loggear diferencias (no fatal)
+                if let Some(snmp_ip) = snmp_wan_ip {
+                    crate::utils::isp::compare_snmp_and_isp(&snmp_ip, &info);
+                }
+
+                if let Some(obj) = payload.as_object_mut() {
+                    obj.insert("isp_info".to_string(), serde_json::to_value(info).unwrap_or(Value::Null));
+                }
+            }
+
         info!(
             "[{}] Recolección completada — {} alertas, {} advertencias en {:.1}s",
             device.device_id, total_alerts, total_warnings, elapsed
         );
+
+
 
         payload
     }

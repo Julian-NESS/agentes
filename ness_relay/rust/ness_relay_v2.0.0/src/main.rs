@@ -144,6 +144,37 @@ async fn main() -> Result<()> {
         args.silent,
     );
 
+    // después de `logging::setup_logging(...)` en main()
+let isp_task = tokio::spawn(async {
+    crate::utils::isp::detect_isp().await
+});
+
+// Registrar resultado cuando termine (no bloqueante)
+tokio::spawn(async move {
+    match isp_task.await {
+        Ok(Ok(info)) => {
+            // Cachear resultado para que el motor lo reutilice en la recolección por dispositivo
+            crate::utils::isp::set_cached_isp(Some(info.clone())).await;
+
+            let asn_str = info.asn.map(|n| format!("AS{}", n)).unwrap_or_else(|| "<unknown>".to_string());
+            let owner = info.asn_org.clone().or_else(|| info.isp.clone()).unwrap_or_else(|| "<unknown provider>".to_string());
+            tracing::info!(
+                "ISP detectado: {} ({}) — ubicación: {}, {} — IP pública: {}",
+                owner,
+                asn_str,
+                info.city.clone().unwrap_or_else(|| "<unknown>".to_string()),
+                info.country.clone().unwrap_or_else(|| "<unknown>".to_string()),
+                info.ip
+            );
+            if let Some(kbps) = info.measured_kbps {
+                tracing::info!("Estimación rápida de ancho de banda: {:.0} kbps", kbps);
+            }
+        }
+        Ok(Err(e)) => tracing::warn!("Detección automática de ISP falló: {}", e),
+        Err(join_err) => tracing::warn!("ISP task join error: {}", join_err),
+    }
+});
+
     // Modo actualización
     if args.update {
         info!("Buscando actualizaciones…");
