@@ -22,6 +22,9 @@ overflow-checks = false # Sin checks de overflow en release
 # ==============================================================================
 [dependencies]
 
+maxminddb = "0.24.0"
+once_cell = "1.18.0"
+
 # --- Runtime asíncrono ---
 tokio = { version = "1", features = ["full"] }
 
@@ -51,7 +54,7 @@ thiserror = "1"
 async-trait = "0.1"
 
 # --- Globales inicializados una sola vez (registro de perfiles) ---
-once_cell = "1"
+
 
 # ==============================================================================
 # RustCrypto - Primitivas de criptografía 100% Rust
