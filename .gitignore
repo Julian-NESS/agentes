@@ -32,3 +32,8 @@ ness_relay/**/output/
 .DS_Store
 .vscode/
 **/.idea/
+ 
+# Ignore local update_db files
+update_db.sh
+update_db.sh.save
+update_db.sh.save.1
