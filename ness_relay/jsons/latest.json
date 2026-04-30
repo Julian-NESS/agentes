@@ -1,0 +1,30 @@
+{
+  "version": "2.1.0",
+  "release_date": "2026-04-30",
+  "arch": "x86_64",
+  "platform": "linux",
+  "min_supported": "2.0.0",
+  "base_url": "https://storage.googleapis.com/repo.nesshq.com/utilities/relay/2.1.0",
+  "files": {
+    "ness_relay": {
+      "sha256": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a7b8c9d0e1f2",
+      "size": 8388608
+    }
+  },
+  "pack": {
+    "url": "https://storage.googleapis.com/repo.nesshq.com/utilities/relay/2.1.0/ness_relay-v2.1.0-linux-x86_64.zip",
+    "fileName": "ness_relay-v2.1.0-linux-x86_64.zip",
+    "sha256": "f1e2d3c4b5a6z7y8x9w0v1u2t3s4r5q6p7o8n9m0l1k2j3i4h5g6f7e8d9c0b1a2"
+  },
+  "changelog": [
+    "NESS Relay v2.1.0 — Agent Relay en Rust (x86_64)",
+    "Sistema de actualización automática desde GCP",
+    "Preservación automática de configuración durante upgrades",
+    "Reportes de estado de actualización al servidor NESS",
+    "Chequeo diario de nuevas versiones (graceful restart)",
+    "Rollback automático en caso de fallo de actualización",
+    "Limpieza automática de backups antiguos (máx 5)",
+    "Validación SHA-256 obligatoria para integridad",
+    "Mejorar compatibilidad con todos los distribuciones Linux"
+  ]
+}

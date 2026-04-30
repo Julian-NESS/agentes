@@ -1,94 +1,180 @@
 // ==============================================================================
-// NESS Relay v2.0.0 — Auto-actualizador
+// NESS Relay v2.0.0 — Auto-actualizador (Refactorizado)
 // Equivalente Python: updater.py
 // ==============================================================================
 //
 // Flujo:
-//   1. check_for_updates()  — GET {version_check_url} → compara semver
-//   2. download_update()    — descarga el ZIP del nuevo binario (streaming)
-//   3. verify_hash()        — SHA-256 del ZIP descargado
-//   4. extract_and_replace()— backup del binario actual + extrae el nuevo
-//   5. cleanup_backups()    — borra backups antiguos (mantiene N)
+//   1. fetch_update_metadata()  — GET latest.json desde GCP
+//   2. parse_metadata()         — Parse JSON a UpdateMetadata struct
+//   3. is_compatible_upgrade()  — Valida min_supported version
+//   4. save_config_before_update() — Preserva variables de entorno
+//   5. download_update()        — Descarga el ZIP (streaming)
+//   6. verify_hash()            — SHA-256 del ZIP descargado (OBLIGATORIO)
+//   7. extract_and_replace()    — Backup + extrae el nuevo binario
+//   8. restore_config_after()   — Restaura variables de entorno
+//   9. cleanup_backups()        — Borra backups antiguos (mantiene N)
 // ==============================================================================
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use tokio::fs;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
-/// Compara versiones semver.  Retorna true si `remote` > `local`.
-fn is_newer(local: &str, remote: &str) -> bool {
-    let parse = |s: &str| -> (u32, u32, u32) {
-        let p: Vec<u32> = s
-            .trim_start_matches('v')
-            .split('.')
-            .filter_map(|x| x.parse().ok())
-            .collect();
-        (
-            *p.first().unwrap_or(&0),
-            *p.get(1).unwrap_or(&0),
-            *p.get(2).unwrap_or(&0),
-        )
-    };
-    parse(remote) > parse(local)
+// ==============================================================================
+// ESTRUCTURAS DE DATOS
+// ==============================================================================
+
+/// Metadata de actualización parseada desde latest.json
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateMetadata {
+    pub version: String,
+    pub release_date: String,
+    pub arch: String,
+    pub platform: String,
+    pub min_supported: String,
+    pub base_url: String,
+    pub pack: PackInfo,
+    pub changelog: Vec<String>,
 }
 
-/// Consulta el servidor para ver si hay una versión más reciente.
-/// Retorna `Some(download_url)` si existe una actualización disponible.
-pub async fn check_for_updates(version_check_url: &str, api_token: &str) -> Option<String> {
-    let client = match reqwest::Client::builder()
+/// Información del paquete a descargar
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackInfo {
+    pub url: String,
+    pub fileName: String,
+    pub sha256: String,
+}
+
+// ==============================================================================
+// FUNCIONES DE VALIDACIÓN Y PARSEO
+// ==============================================================================
+
+/// Compara versiones semver. Retorna true si `remote` > `local`.
+fn parse_semver(s: &str) -> (u32, u32, u32) {
+    let p: Vec<u32> = s
+        .trim_start_matches('v')
+        .split('.')
+        .filter_map(|x| x.parse().ok())
+        .collect();
+    (
+        *p.first().unwrap_or(&0),
+        *p.get(1).unwrap_or(&0),
+        *p.get(2).unwrap_or(&0),
+    )
+}
+
+fn is_newer(local: &str, remote: &str) -> bool {
+    parse_semver(remote) > parse_semver(local)
+}
+
+/// Parsea la respuesta JSON de latest.json en una estructura UpdateMetadata.
+pub fn parse_metadata(json_str: &str) -> Result<UpdateMetadata> {
+    serde_json::from_str(json_str)
+        .context("No se pudo parsear metadata de actualización desde JSON")
+}
+
+/// Valida que la versión remota sea compatible con la versión local.
+///
+/// Retorna Err si:
+/// - La versión remota es <= local (no es upgrade)
+/// - La versión local es < min_supported (incompatible)
+pub fn is_compatible_upgrade(
+    local_version: &str,
+    remote_version: &str,
+    min_supported: &str,
+) -> Result<()> {
+    let local = parse_semver(local_version);
+    let remote = parse_semver(remote_version);
+    let min_required = parse_semver(min_supported);
+
+    // Validar que es versión más nueva
+    if remote <= local {
+        return Err(anyhow!(
+            "No es upgrade: versión local {} >= versión remota {}",
+            local_version,
+            remote_version
+        ));
+    }
+
+    // Validar compatibilidad hacia atrás
+    if local < min_required {
+        return Err(anyhow!(
+            "Versión local {} es menor que mínima requerida {}",
+            local_version,
+            min_supported
+        ));
+    }
+
+    info!(
+        "Upgrade compatible validado: {} -> {} (mín. soportada: {})",
+        local_version, remote_version, min_supported
+    );
+    Ok(())
+}
+
+/// Descarga y parsea la metadata desde una URL remota.
+pub async fn fetch_update_metadata(metadata_url: &str, api_token: &str) -> Result<UpdateMetadata> {
+    let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
         .use_rustls_tls()
-        .build()
-    {
-        Ok(c) => c,
-        Err(_) => return None,
-    };
+        .build()?;
 
-    let resp = match client
-        .get(version_check_url)
+    let resp = client
+        .get(metadata_url)
         .header("Authorization", format!("Token {}", api_token))
         .send()
         .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            warn!("Error consultando versión remota: {}", e);
-            return None;
-        }
-    };
+        .context("Error fetching metadata de versión remota")?;
 
     if !resp.status().is_success() {
-        warn!(
-            "Servidor devolvió HTTP {} al consultar versión",
+        return Err(anyhow!(
+            "Servidor devolvió HTTP {} al consultar metadata",
             resp.status().as_u16()
-        );
-        return None;
+        ));
     }
 
-    let body: serde_json::Value = match resp.json().await {
-        Ok(v) => v,
-        Err(e) => {
-            warn!("Respuesta de versión no es JSON válido: {}", e);
-            return None;
+    let body = resp
+        .text()
+        .await
+        .context("No se pudo leer respuesta de metadata")?;
+
+    parse_metadata(&body)
+}
+
+/// Comprueba si hay una actualización disponible.
+///
+/// Retorna `Some(UpdateMetadata)` si existe una versión más nueva y compatible.
+pub async fn check_for_updates(
+    version_check_url: &str,
+    api_token: &str,
+) -> Result<Option<UpdateMetadata>> {
+    info!("Verificando actualizaciones en: {}", version_check_url);
+
+    match fetch_update_metadata(version_check_url, api_token).await {
+        Ok(metadata) => {
+            let local_version = crate::config::RELAY_VERSION;
+
+            match is_compatible_upgrade(local_version, &metadata.version, &metadata.min_supported) {
+                Ok(_) => {
+                    info!(
+                        "Nueva versión disponible: {} → {}",
+                        local_version, metadata.version
+                    );
+                    Ok(Some(metadata))
+                }
+                Err(e) => {
+                    warn!("Actualización no compatible: {}", e);
+                    Ok(None)
+                }
+            }
         }
-    };
-
-    let remote_version = body.get("version").and_then(|v| v.as_str())?;
-    let download_url   = body.get("download_url").and_then(|v| v.as_str())?;
-    let local_version  = crate::config::RELAY_VERSION;
-
-    if is_newer(local_version, remote_version) {
-        info!(
-            "Nueva versión disponible: {} → {}",
-            local_version, remote_version
-        );
-        Some(download_url.to_string())
-    } else {
-        info!("Versión actual ({}) es la más reciente.", local_version);
-        None
+        Err(e) => {
+            warn!("Error verificando actualizaciones: {}", e);
+            Err(e)
+        }
     }
 }
 
@@ -103,7 +189,11 @@ pub async fn download_update(url: &str) -> Result<PathBuf> {
         .build()?;
 
     info!("Descargando actualización desde {}", url);
-    let mut resp = client.get(url).send().await?;
+    let mut resp = client
+        .get(url)
+        .send()
+        .await
+        .context("Error descargando actualización")?;
 
     if !resp.status().is_success() {
         return Err(anyhow!(
@@ -112,36 +202,91 @@ pub async fn download_update(url: &str) -> Result<PathBuf> {
         ));
     }
 
-    let mut file = std::fs::File::create(&tmp_path)?;
-    while let Some(chunk) = resp.chunk().await? {
-        file.write_all(&chunk)?;
+    let mut file = std::fs::File::create(&tmp_path)
+        .context("No se pudo crear archivo temporal para descarga")?;
+    while let Some(chunk) = resp
+        .chunk()
+        .await
+        .context("Error recibiendo chunk de descarga")?
+    {
+        file.write_all(&chunk)
+            .context("Error escribiendo chunk al archivo")?;
     }
 
-    info!("Descarga completada: {}", tmp_path.display());
+    info!("Descarga completada: {} bytes", tmp_path.display());
     Ok(tmp_path)
 }
 
-/// Verifica el hash SHA-256 del archivo descargado.
-/// `expected_hex` — SHA-256 en hexadecimal (puede ser vacío para omitir).
-pub async fn verify_hash(path: &Path, expected_hex: &str) -> Result<()> {
-    if expected_hex.is_empty() {
-        return Ok(());
-    }
-
-    let data = fs::read(path).await?;
+/// Calcula el hash SHA-256 de un archivo.
+async fn calculate_sha256(path: &Path) -> Result<String> {
+    let data = fs::read(path)
+        .await
+        .context("No se pudo leer archivo para verificar hash")?;
     let mut hasher = Sha256::new();
     hasher.update(&data);
-    let hash = format!("{:x}", hasher.finalize());
+    Ok(format!("{:x}", hasher.finalize()))
+}
 
-    if hash.eq_ignore_ascii_case(expected_hex) {
-        info!("Hash SHA-256 verificado correctamente.");
+/// Verifica el hash SHA-256 del archivo descargado.
+///
+/// # Nota
+/// El SHA-256 es OBLIGATORIO. Si está vacío, retorna error.
+pub async fn verify_hash(path: &Path, expected_hex: &str) -> Result<()> {
+    if expected_hex.is_empty() {
+        return Err(anyhow!(
+            "SHA-256 vacío: verificación de integridad es OBLIGATORIA"
+        ));
+    }
+
+    let calculated_hash = calculate_sha256(path).await?;
+
+    if calculated_hash.eq_ignore_ascii_case(expected_hex) {
+        info!("✓ Hash SHA-256 verificado correctamente");
         Ok(())
     } else {
         Err(anyhow!(
-            "Hash SHA-256 inválido. Esperado: {}, Calculado: {}",
+            "✗ Hash SHA-256 inválido.\nEsperado:  {}\nCalculado: {}",
             expected_hex,
-            hash
+            calculated_hash
         ))
+    }
+}
+
+/// Guarda la configuración actual antes de actualizar.
+/// Integración con config_backup.rs.
+pub async fn save_config_before_update(
+    api_token: &str,
+    server_id: &str,
+    collection_interval_minutes: u64,
+    devices_config_path: PathBuf,
+    output_dir: PathBuf,
+    log_dir: PathBuf,
+) -> Result<PathBuf> {
+    let config = crate::config_backup::PreservedConfig::from_env(
+        api_token.to_string(),
+        server_id.to_string(),
+        collection_interval_minutes,
+        devices_config_path,
+        output_dir,
+        log_dir,
+    );
+
+    crate::config_backup::save_config(&config, None)
+        .context("No se pudo guardar configuración antes de actualizar")
+}
+
+/// Restaura la configuración después de extraer el nuevo binario.
+pub async fn restore_config_after_update() -> Result<()> {
+    match crate::config_backup::load_config(None) {
+        Ok(config) => {
+            crate::config_backup::apply_config_as_env_vars(&config)?;
+            info!("Configuración restaurada después de actualización");
+            Ok(())
+        }
+        Err(e) => {
+            warn!("No se pudo restaurar configuración: {}. Continuando...", e);
+            Ok(())
+        }
     }
 }
 
@@ -237,33 +382,46 @@ pub async fn cleanup_backups(install_dir: &Path, max_count: usize) -> Result<()>
 }
 
 /// Punto de entrada del proceso de actualización completo.
+/// Retorna `Ok(true)` si la actualización fue exitosa y el agente debe reiniciarse.
+pub async fn apply_update(metadata: &UpdateMetadata) -> Result<()> {
+    info!(
+        "Descargando actualización v{} desde: {}",
+        metadata.version, metadata.pack.url
+    );
+
+    let zip_path = download_update(&metadata.pack.url).await?;
+
+    verify_hash(&zip_path, &metadata.pack.sha256).await?;
+
+    extract_and_replace(&zip_path, "ness_relay")?;
+    let _ = tokio::fs::remove_file(&zip_path).await;
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let _ = cleanup_backups(dir, crate::config::MAX_BACKUPS).await;
+        }
+    }
+
+    info!(
+        "✓ Actualización completada v{} → v{}.",
+        crate::config::RELAY_VERSION,
+        metadata.version
+    );
+    Ok(())
+}
+
 pub async fn run_update(
     version_check_url: &str,
     api_token: &str,
-    expected_sha256: &str,
 ) -> Result<bool> {
-    match check_for_updates(version_check_url, api_token).await {
-        None => return Ok(false),
-        Some(download_url) => {
-            let zip_path = download_update(&download_url).await?;
-
-            if let Err(e) = verify_hash(&zip_path, expected_sha256).await {
-                error!("Verificación de hash fallida: {}", e);
-                let _ = tokio::fs::remove_file(&zip_path).await;
-                return Err(e);
-            }
-
-            extract_and_replace(&zip_path, "ness_relay")?;
-            let _ = tokio::fs::remove_file(&zip_path).await;
-
-            // Limpiar backups viejos
-            if let Ok(exe) = std::env::current_exe() {
-                if let Some(dir) = exe.parent() {
-                    let _ = cleanup_backups(dir, 3).await;
-                }
-            }
-
-            info!("Actualización completada. Reinicia el agente para aplicar la nueva versión.");
+    match check_for_updates(version_check_url, api_token).await? {
+        None => {
+            info!("No hay actualización disponible.");
+            Ok(false)
+        }
+        Some(metadata) => {
+            apply_update(&metadata).await?;
+            info!("Agente debe reiniciarse para aplicar la nueva versión.");
             Ok(true)
         }
     }

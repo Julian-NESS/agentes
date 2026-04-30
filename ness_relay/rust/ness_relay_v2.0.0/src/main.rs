@@ -17,13 +17,17 @@
 mod analyzers;
 mod collectors;
 mod config;
+mod config_backup;
 mod engine;
 mod exporters;
 mod logging;
 mod profiles;
+mod restart_handler;
+mod server_reporter;
 mod smart_tester;
 mod snmp;
 mod updater;
+mod update_tracker;
 mod utils;
 
 use anyhow::Result;
@@ -61,6 +65,10 @@ struct Args {
     /// Buscar e instalar actualizaciones del relay.
     #[arg(long)]
     update: bool,
+
+    /// Omite chequeo automático de actualización en modo continuo.
+    #[arg(long, hide = true)]
+    skip_update_check: bool,
 
     /// Silenciar la salida en consola (solo escribe en el archivo de log).
     #[arg(long)]
@@ -150,7 +158,6 @@ async fn main() -> Result<()> {
         match updater::run_update(
             &app_config.version_check_url,
             &app_config.api_token,
-            "",     // sha256 verificación (vacío = omitir)
         )
         .await
         {
@@ -173,7 +180,12 @@ async fn main() -> Result<()> {
     }
 
     if args.continuous.is_some() {
-        run_continuous(app_config, args.continuous.unwrap()).await
+        run_continuous(
+            app_config,
+            args.continuous.unwrap(),
+            args.skip_update_check,
+        )
+        .await
     } else {
         run_once(app_config).await
     }
@@ -208,12 +220,17 @@ async fn run_once(config: Arc<AppConfig>) -> Result<()> {
 // Ejecución continua
 // ==============================================================================
 
-async fn run_continuous(config: Arc<AppConfig>, interval_minutes: u64) -> Result<()> {
+async fn run_continuous(
+    config: Arc<AppConfig>,
+    interval_minutes: u64,
+    skip_update_check: bool,
+) -> Result<()> {
     info!(
         "Modo continuo activado — ciclo cada {} minuto(s).",
         interval_minutes
     );
     let delay = Duration::from_secs(interval_minutes * 60);
+    let mut update_state = update_tracker::load_state(None).unwrap_or_default();
 
     loop {
         let devices = match load_devices_from_config(&config.config_file) {
@@ -228,6 +245,160 @@ async fn run_continuous(config: Arc<AppConfig>, interval_minutes: u64) -> Result
         let engine = CollectionEngine::new(Arc::clone(&config));
         if let Err(e) = engine.collect_all_devices(&devices).await {
             error!("Error en el ciclo de recolección: {}", e);
+        }
+
+        if !skip_update_check
+            && update_tracker::should_check_now(
+                &update_state,
+                Some(config::UPDATE_CHECK_INTERVAL_HOURS),
+            )
+        {
+            info!("Iniciando chequeo programado de actualización...");
+            update_tracker::mark_check_completed(&mut update_state);
+            if let Err(e) = update_tracker::save_state(&update_state, None) {
+                warn!("No se pudo persistir estado de chequeo: {}", e);
+            }
+
+            match updater::check_for_updates(&config.version_check_url, &config.api_token).await {
+                Ok(Some(metadata)) => {
+                    if !config.api_token.is_empty() {
+                        if let Err(e) = server_reporter::report_update_available(
+                            &config.update_report_url,
+                            &config.api_token,
+                            config::RELAY_VERSION,
+                            &metadata.version,
+                        )
+                        .await
+                        {
+                            warn!("No se pudo reportar update disponible: {}", e);
+                        }
+                    }
+
+                    if let Err(e) = updater::save_config_before_update(
+                        &config.api_token,
+                        &config.server_id,
+                        interval_minutes,
+                        config.config_file.clone(),
+                        config.output_dir.clone(),
+                        config.log_dir.clone(),
+                    )
+                    .await
+                    {
+                        warn!("No se pudo guardar configuración previa a update: {}", e);
+                    }
+
+                    if !config.api_token.is_empty() {
+                        if let Err(e) = server_reporter::report_update_started(
+                            &config.update_report_url,
+                            &config.api_token,
+                            config::RELAY_VERSION,
+                            &metadata.version,
+                        )
+                        .await
+                        {
+                            warn!("No se pudo reportar inicio de update: {}", e);
+                        }
+                    }
+
+                    match updater::apply_update(&metadata).await {
+                        Ok(_) => {
+                            let _ = updater::restore_config_after_update().await;
+
+                            if !config.api_token.is_empty() {
+                                if let Err(e) = server_reporter::report_update_completed(
+                                    &config.update_report_url,
+                                    &config.api_token,
+                                    config::RELAY_VERSION,
+                                    &metadata.version,
+                                )
+                                .await
+                                {
+                                    warn!("No se pudo reportar update completado: {}", e);
+                                }
+                            }
+
+                            if let Err(e) = update_tracker::mark_update_pending(
+                                &mut update_state,
+                                metadata.version.clone(),
+                                None,
+                            ) {
+                                warn!("No se pudo marcar update pendiente: {}", e);
+                            }
+
+                            if !config.api_token.is_empty() {
+                                if let Err(e) = server_reporter::report_update_pending(
+                                    &config.update_report_url,
+                                    &config.api_token,
+                                    config::RELAY_VERSION,
+                                    &metadata.version,
+                                )
+                                .await
+                                {
+                                    warn!("No se pudo reportar update pendiente: {}", e);
+                                }
+                            }
+
+                            match restart_handler::trigger_graceful_restart(
+                                &metadata.version,
+                                None,
+                            ) {
+                                Ok(_) => {
+                                    if let Err(e) = update_tracker::mark_update_completed(
+                                        &mut update_state,
+                                        None,
+                                    ) {
+                                        warn!("No se pudo marcar update completado: {}", e);
+                                    }
+                                    info!("Actualización aplicada. Cerrando proceso para reinicio controlado.");
+                                    return Ok(());
+                                }
+                                Err(e) => {
+                                    let msg = format!("No se pudo marcar restart graceful: {}", e);
+                                    error!("{}", msg);
+                                    let _ = update_tracker::mark_update_failed(
+                                        &mut update_state,
+                                        msg.clone(),
+                                        None,
+                                    );
+                                    if !config.api_token.is_empty() {
+                                        let _ = server_reporter::report_update_failed(
+                                            &config.update_report_url,
+                                            &config.api_token,
+                                            config::RELAY_VERSION,
+                                            &msg,
+                                        )
+                                        .await;
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            let msg = format!("Error aplicando actualización: {}", e);
+                            error!("{}", msg);
+                            let _ = update_tracker::mark_update_failed(
+                                &mut update_state,
+                                msg.clone(),
+                                None,
+                            );
+                            if !config.api_token.is_empty() {
+                                let _ = server_reporter::report_update_failed(
+                                    &config.update_report_url,
+                                    &config.api_token,
+                                    config::RELAY_VERSION,
+                                    &msg,
+                                )
+                                .await;
+                            }
+                        }
+                    }
+                }
+                Ok(None) => {
+                    info!("No hay nueva versión disponible en este ciclo.");
+                }
+                Err(e) => {
+                    warn!("Chequeo de actualización falló: {}", e);
+                }
+            }
         }
 
         info!("Próximo ciclo en {} minuto(s).", interval_minutes);

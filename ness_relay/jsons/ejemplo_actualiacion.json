@@ -1,0 +1,39 @@
+{
+  "version": "3.0.0",
+  "release_date": "2026-04-05",
+  "arch": "x86_64",
+  "platform": "rhel",
+  "min_supported": "3.0.0",
+  "base_url": "https://storage.googleapis.com/repo.nesshq.com/linux/rhel/3.0.0",
+  "files": {
+    "ness-core-service": {
+      "sha256": "fca7532312231a8732eadc2e28fc9e6700868b06f188d6f17ccff09f0804246b",
+      "size": 5913424
+    },
+    "ness-configurator": {
+      "sha256": "95007554864955c5b1c871494f78328284913273e205e74dddd8aab2f010700c",
+      "size": 1045072
+    },
+    "ness-updater": {
+      "sha256": "de3ca81ef9dae2c6844ccbed13c0fa988da24970c3cb1e76bb4fc2e09deac104",
+      "size": 3036936
+    }
+  },
+  "pack": {
+    "url": "https://storage.googleapis.com/repo.nesshq.com/linux/rhel/3.0.0/ness-core-v3.0.0-rhel-x86_64.tar.gz",
+    "fileName": "ness-core-v3.0.0-rhel-x86_64.tar.gz",
+    "sha256": "3d897543bb25b80c1ce7719a39a9d9cecf638004c5ce9b09f54cdb32ab58b14b"
+  },
+  "cis_scanner": {
+    "url": "https://storage.googleapis.com/repo.nesshq.com/cis-scanners/cis-scanner-rhel",
+    "sha256": "2dc881675dfa6af17d182903fda889897e04b425b291012e1c1818b9535c8dcc",
+    "size": 761104
+  },
+  "changelog": [
+    "NESS Core v3.0.0 — Agente RHEL en Rust (glibc, x86_64)",
+    "Soporte RHEL, CentOS, Rocky, AlmaLinux, Fedora, Oracle Linux",
+    "CIS Benchmark Scanner para RHEL",
+    "Monitoreo de hardware, servicios y parches",
+    "Auto-actualización desde repositorio GCS"
+  ]
+}

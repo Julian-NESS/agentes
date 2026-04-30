@@ -25,6 +25,9 @@ use std::path::{Path, PathBuf};
 pub const RELAY_VERSION: &str = "2.0.0";
 pub const RELAY_TYPE: &str = "ness-relay";
 pub const MAX_BACKUPS: usize = 5;
+pub const UPDATE_CHECK_INTERVAL_HOURS: u64 = 24;
+pub const VERSION_CHECK_URL_GCP: &str = "https://storage.googleapis.com/repo.nesshq.com/utilities/relay/latest.json";
+pub const HOSTING_BASE_URL_GCP: &str = "https://storage.googleapis.com/repo.nesshq.com/utilities/relay";
 
 /// URLs de servidores NESS por SERVER_ID (hardcodeadas por seguridad).
 /// El instalador solo maneja IDs (1, 2, 3) sin exponer las rutas reales.
@@ -97,9 +100,9 @@ impl AppConfig {
             .unwrap_or_else(|_| server_url_by_id(&server_id).to_string());
 
         let hosting_base_url = env::var("NESS_HOSTING_URL")
-            .unwrap_or_else(|_| "https://nesshq.com/agents/ness-relay/linux/ubuntu".to_string());
+            .unwrap_or_else(|_| HOSTING_BASE_URL_GCP.to_string());
         let version_check_url = env::var("NESS_VERSION_CHECK_URL")
-            .unwrap_or_else(|_| format!("{}/version.json", hosting_base_url));
+            .unwrap_or_else(|_| VERSION_CHECK_URL_GCP.to_string());
         let update_report_url = env::var("NESS_UPDATE_REPORT_URL")
             .unwrap_or_else(|_| "https://nesshq.com/api/report-relay-update/".to_string());
 

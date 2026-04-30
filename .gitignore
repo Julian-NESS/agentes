@@ -5,6 +5,7 @@
 **/.venv/
 **/.env
 **/.env.*
+**/.ness-venv/
 
 # --- Binarios y Compilaciones de Python (PyInstaller, etc) ---
 **/build/
