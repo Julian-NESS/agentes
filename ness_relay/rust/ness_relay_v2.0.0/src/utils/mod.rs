@@ -4,3 +4,4 @@
 
 pub mod conversions;
 pub mod helpers;
+pub mod geoip;

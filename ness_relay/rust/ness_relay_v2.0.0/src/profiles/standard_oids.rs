@@ -114,6 +114,26 @@ pub fn ip_oids() -> HashMap<&'static str, &'static str> {
     m
 }
 
+// ============================================================================
+// BGP4-MIB (RFC 1657 / BGP4-MIB)
+// ============================================================================
+pub fn bgp_oids() -> HashMap<&'static str, &'static str> {
+    let mut m = HashMap::new();
+    // BGP4-MIB base
+    m.insert("bgpVersion", "1.3.6.1.2.1.15.1.0");
+    // Local AS number (scalar)
+    m.insert("bgpLocalAs", "1.3.6.1.2.1.15.2.0");
+    // bgpPeerTable / bgpPeerEntry (tabla)
+    m.insert("bgpPeerTable", "1.3.6.1.2.1.15.3");
+    // Column OIDs (bgpPeerEntry columns)
+    m.insert("bgpPeerRemoteAddr", "1.3.6.1.2.1.15.3.1.3");
+    m.insert("bgpPeerState", "1.3.6.1.2.1.15.3.1.2");
+    m.insert("bgpPeerRemoteAs", "1.3.6.1.2.1.15.3.1.9");
+    m.insert("bgpPeerLocalAddr", "1.3.6.1.2.1.15.3.1.5");
+    m.insert("bgpPeerLastError", "1.3.6.1.2.1.15.3.1.14");
+    m
+}
+
 // ==============================================================================
 // ICMP STATS (RFC 2011)
 // ==============================================================================

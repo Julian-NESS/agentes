@@ -52,6 +52,7 @@ async-trait = "0.1"
 
 # --- Globales inicializados una sola vez (registro de perfiles) ---
 once_cell = "1"
+maxminddb = "0.22"
 
 # ==============================================================================
 # RustCrypto - Primitivas de criptografía 100% Rust

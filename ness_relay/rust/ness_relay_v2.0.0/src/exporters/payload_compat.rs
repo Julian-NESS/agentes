@@ -11,6 +11,7 @@
 // ==============================================================================
 
 use serde_json::{json, Map, Value};
+use crate::utils::{geoip, helpers};
 
 /// Transforma el payload del formato interno Rust al formato compatible
 /// con el serializer del servidor NESS (formato Python).
@@ -20,6 +21,7 @@ pub fn transform_for_server(mut payload: Value) -> Value {
     transform_performance(&mut payload);
     transform_security(&mut payload);
     transform_vendor_specific(&mut payload);
+    transform_geolocation(&mut payload);
     payload
 }
 
@@ -57,64 +59,50 @@ fn transform_system(payload: &mut Value) {
 // network.interfaces: array → dict, renombrar campos, convertir unidades
 // ---------------------------------------------------------------------------
 fn transform_network(payload: &mut Value) {
+    // 1. Capturar el proveedor desde metadata (lo usaremos para isp_detected)
+    let provider_global = payload
+        .get("metadata")
+        .and_then(|m| m.get("provider"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "Unknown".to_string());
+
+    // 2. Intentar obtener el acceso al objeto "network"
     let network = match payload.get_mut("network") {
         Some(n) => n,
         None => return,
     };
 
-    let interfaces = match network.get("interfaces").and_then(|v| v.as_array()) {
+    // 3. Extraer el array de interfaces (lo clonamos para poder iterar tranquilos)
+    let interfaces_array = match network.get("interfaces").and_then(|v| v.as_array()) {
         Some(arr) => arr.clone(),
         None => return,
     };
 
     let mut interfaces_dict = Map::new();
 
-    for iface in &interfaces {
-        let index = iface
-            .get("index")
-            .and_then(|v| v.as_str())
-            .unwrap_or("0")
-            .to_string();
+    // 4. Procesar cada interfaz del array
+    for iface in &interfaces_array {
+        // EXTRAEMOS LOS VALORES PRIMERO (Esto evita tus 18 errores)
+        let index = iface.get("index").and_then(|v| v.as_str()).unwrap_or("0").to_string();
+        let name = iface.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+        
+        let admin_status = iface.get("admin_status")
+            .and_then(|v| v.as_str()).unwrap_or("down").to_uppercase();
+        
+        let oper_status = iface.get("operational_status")
+            .and_then(|v| v.as_str()).unwrap_or("down").to_uppercase();
 
-        let speed_bps = iface
-            .get("speed_bps")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        let speed_mbps = speed_bps / 1_000_000;
+        let speed_mbps = iface.get("speed_mbps").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let traffic_in_mb = iface.get("traffic_in_mb").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let traffic_out_mb = iface.get("traffic_out_mb").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        
+        let errors_in = iface.get("errors_in").and_then(|v| v.as_u64()).unwrap_or(0);
+        let errors_out = iface.get("errors_out").and_then(|v| v.as_u64()).unwrap_or(0);
+        let discards_in = iface.get("discards_in").and_then(|v| v.as_u64()).unwrap_or(0);
+        let discards_out = iface.get("discards_out").and_then(|v| v.as_u64()).unwrap_or(0);
 
-        let in_octets = iface
-            .get("in_octets")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        let out_octets = iface
-            .get("out_octets")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        let traffic_in_mb = round2(in_octets as f64 / 1_048_576.0);
-        let traffic_out_mb = round2(out_octets as f64 / 1_048_576.0);
-
-        let admin_status = iface
-            .get("admin_status")
-            .and_then(|v| v.as_str())
-            .unwrap_or("down")
-            .to_uppercase();
-        let oper_status = iface
-            .get("oper_status")
-            .and_then(|v| v.as_str())
-            .unwrap_or("down")
-            .to_uppercase();
-
-        let errors_in = iface.get("in_errors").and_then(|v| v.as_u64()).unwrap_or(0);
-        let errors_out = iface.get("out_errors").and_then(|v| v.as_u64()).unwrap_or(0);
-        let discards_in = iface.get("in_discards").and_then(|v| v.as_u64()).unwrap_or(0);
-        let discards_out = iface.get("out_discards").and_then(|v| v.as_u64()).unwrap_or(0);
-
-        let name = iface
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
+        // 5. INSERTAR en el nuevo diccionario
         interfaces_dict.insert(
             index.clone(),
             json!({
@@ -130,10 +118,12 @@ fn transform_network(payload: &mut Value) {
                 "total_errors": errors_in + errors_out,
                 "discards_in": discards_in,
                 "discards_out": discards_out,
+                "isp_detected": provider_global, // Aquí usamos el dato de Bosa/Bogotá
             }),
         );
     }
 
+    // 6. Reemplazar el array de interfaces original por nuestro nuevo diccionario (formato Python)
     network["interfaces"] = Value::Object(interfaces_dict);
 }
 
@@ -500,6 +490,12 @@ fn transform_mikrotik_fw_specific(payload: &mut Value, vendor_key: &str) {
 
     let mut transformed = mk_data.clone();
     if let Some(obj) = transformed.as_object_mut() {
+        // Provider global (opcional) tomado desde metadata
+        let provider_global = payload
+            .get("metadata")
+            .and_then(|m| m.get("provider"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
         // Alinear estructura de queues al formato Python:
         // { available: bool, entries: [...], summary: {...} }
         let queues_value = obj.get("queues").cloned();
@@ -537,7 +533,7 @@ fn transform_mikrotik_fw_specific(payload: &mut Value, vendor_key: &str) {
                         "rx_packets": 0,
                         "tx_drop": dropped,
                         "rx_drop": 0,
-                        "isp_detected": serde_json::Value::Null,
+                        "isp_detected": provider_global.clone().map(|s| json!(s)).unwrap_or(serde_json::Value::Null),
                         "tx_gb": tx_gb,
                         "rx_gb": rx_gb,
                     }));
@@ -653,7 +649,7 @@ fn transform_mikrotik_fw_specific(payload: &mut Value, vendor_key: &str) {
                     let name = iface.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
                     derived.push(json!({
                         "channel_name": name,
-                        "isp": "Desconocido",
+                        "isp": provider_global.clone().unwrap_or_else(|| "Desconocido".to_string()),
                         "source": "wan_interface",
                         "oper_status": oper,
                         "is_up": oper.eq_ignore_ascii_case("UP"),
@@ -730,6 +726,82 @@ fn transform_mikrotik_fw_specific(payload: &mut Value, vendor_key: &str) {
         }
     }
     payload[vendor_key] = transformed;
+}
+
+// ---------------------------------------------------------------------------
+// Geolocation & Provider enrichment
+// ---------------------------------------------------------------------------
+fn transform_geolocation(payload: &mut Value) {
+    // Try to find a public IP to lookup: prefer BGP peer remote_addr, else SNMP host
+    let ip_opt = payload
+        .get("network")
+        .and_then(|n| n.get("bgp"))
+        .and_then(|b| b.get("peers"))
+        .and_then(|p| p.as_array())
+        .and_then(|arr| arr.get(0))
+        .and_then(|first| first.get("remote_addr"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let ip = if let Some(ip) = ip_opt {
+        ip
+    } else {
+        payload
+            .get("metadata")
+            .and_then(|m| m.get("snmp_host"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+
+    if ip.is_empty() {
+        return;
+    }
+
+    // City lookup
+    if let Some(city_val) = geoip::lookup_city(&ip) {
+        if let Some(meta) = payload.get_mut("metadata").and_then(|m| m.as_object_mut()) {
+            meta.insert(
+                "geolocation".to_string(),
+                json!({
+                    "enabled": true,
+                    "timestamp": helpers::now_iso_utc(),
+                    "lookup_method": "GeoLite2-City",
+                    "result": city_val.clone()
+                }),
+            );
+        }
+    }
+
+    // ASN lookup -> provider
+    if let Some(asn_val) = geoip::lookup_asn(&ip) {
+        if let Some(meta) = payload.get_mut("metadata").and_then(|m| m.as_object_mut()) {
+            let asn_str = asn_val
+                .get("asn")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown");
+            let org = asn_val
+                .get("organization")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown");
+
+            meta.insert("asn".to_string(), json!(asn_str));
+            meta.insert("provider".to_string(), json!(format!("AS{} {}", asn_str, org)));
+        }
+    } else {
+        // Fallback: use bgp.local_as if present (take owned String to avoid borrow issues)
+        if let Some(local_as_owned) = payload
+            .get("network")
+            .and_then(|n| n.get("bgp"))
+            .and_then(|b| b.get("local_as"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+        {
+            if let Some(meta) = payload.get_mut("metadata").and_then(|m| m.as_object_mut()) {
+                meta.insert("provider".to_string(), json!(format!("AS{}", local_as_owned)));
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

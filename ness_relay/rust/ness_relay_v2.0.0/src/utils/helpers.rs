@@ -62,3 +62,23 @@ pub fn json_merge(base: &mut serde_json::Value, extra: serde_json::Value) {
         }
     }
 }
+pub async fn get_public_ip() -> Option<String> {
+    // Definimos un cliente con un tiempo de espera de 3 segundos
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build() {
+            Ok(c) => c,
+            Err(_) => return None,
+        };
+
+    // Consultamos api.ipify.org que devuelve la IP en texto plano
+    match client.get("https://api.ipify.org").send().await {
+        Ok(resp) => {
+            if let Ok(text) = resp.text().await {
+                return Some(text.trim().to_string());
+            }
+            None
+        }
+        Err(_) => None,
+    }
+}

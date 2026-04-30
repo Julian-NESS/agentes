@@ -1419,6 +1419,7 @@ mkdir -p "$INSTALL_DIR/configs"
 mkdir -p "$INSTALL_DIR/devices"
 mkdir -p "$INSTALL_DIR/executables"
 mkdir -p "$INSTALL_DIR/logs"
+mkdir -p "$INSTALL_DIR/data"
 
 log_message "SUCCESS" "Estructura de directorios creada:"
 echo -e "${WHITE}  ├── configs/     ${DIM}(Archivos de configuración)${NC}"
@@ -1458,7 +1459,9 @@ log_message "PROGRESS" "Configurando variables de entorno..."
     echo "export NESS_INSTALL_DIR=\"$INSTALL_DIR\""
     echo "export NESS_DEVICES_FILE=\"$INSTALL_DIR/configs/connection.config\""
     echo "export NESS_OUTPUT_DIR=\"$INSTALL_DIR/output\""
-    echo "export NESS_LOG_DIR=\"$INSTALL_DIR/logs\""
+    echo "export NESS_LOG_DIR \"$INSTALL_DIR/logs\""
+    # License key for MaxMind GeoLite2 (optional). Set NESS_MAXMIND_LICENSE_KEY env to enable automatic download.
+    echo "export NESS_MAXMIND_LICENSE_KEY \"${NESS_MAXMIND_LICENSE_KEY:-}\""
 } > "$ENV_FILE"
 chmod +x "$ENV_FILE"
 source "$ENV_FILE"
@@ -1468,6 +1471,56 @@ log_message "SUCCESS" "Variables de entorno configuradas en: $ENV_FILE"
 # GENERAR ARCHIVO DE CONFIGURACIÓN DE DISPOSITIVOS
 ###############################################################################
 generate_config_file
+
+# Descargar GeoLite2 DBs (City + ASN) si hay license key disponible
+download_geolite2() {
+    local dest="$INSTALL_DIR/data"
+    mkdir -p "$dest"
+
+    local key="${NESS_MAXMIND_LICENSE_KEY:-}"
+    if [[ -z "$key" ]]; then
+        if [[ "$SILENT_MODE" == "true" ]]; then
+            log_message "INFO" "NESS_MAXMIND_LICENSE_KEY no está definido; omitiendo descarga de GeoLite2"
+            return 0
+        fi
+        echo ""
+        echo -ne "Introduce la MaxMind License Key para descargar GeoLite2 (ENTER para omitir): "
+        read -r input_key
+        if [[ -z "$input_key" ]]; then
+            log_message "INFO" "Descarga de GeoLite2 omitida por el usuario"
+            return 0
+        fi
+        key="$input_key"
+    fi
+
+    for edition in "GeoLite2-City" "GeoLite2-ASN"; do
+        local url="https://download.maxmind.com/app/geoip_download?edition_id=${edition}&license_key=${key}&suffix=tar.gz"
+        log_message "PROGRESS" "Descargando ${edition} desde MaxMind..."
+        tmpdir=$(mktemp -d)
+        if command -v curl >/dev/null 2>&1; then
+            curl -fsSL -o "$tmpdir/${edition}.tar.gz" "$url" || { log_message "ERROR" "Error descargando ${edition}"; rm -rf "$tmpdir"; continue; }
+        elif command -v wget >/dev/null 2>&1; then
+            wget -qO "$tmpdir/${edition}.tar.gz" "$url" || { log_message "ERROR" "Error descargando ${edition}"; rm -rf "$tmpdir"; continue; }
+        else
+            log_message "ERROR" "curl o wget no están disponibles; no se puede descargar GeoLite2"
+            rm -rf "$tmpdir"
+            return 1
+        fi
+
+        tar -xzf "$tmpdir/${edition}.tar.gz" -C "$tmpdir" || { log_message "ERROR" "Error extrayendo ${edition}"; rm -rf "$tmpdir"; continue; }
+        mmdb_file=$(find "$tmpdir" -type f -name "*.mmdb" | head -n 1)
+        if [[ -n "$mmdb_file" ]]; then
+            cp "$mmdb_file" "$dest/${edition}.mmdb" || { log_message "ERROR" "No se pudo copiar ${edition} al destino"; }
+            log_message "SUCCESS" "Base ${edition} instalada en: $dest/${edition}.mmdb"
+        else
+            log_message "ERROR" "No se encontró archivo .mmdb dentro del paquete ${edition}"
+        fi
+        rm -rf "$tmpdir"
+    done
+}
+
+# Intentar descargar GeoLite2 ahora (si se desea)
+download_geolite2
 
 ###############################################################################
 # SMART TESTER DEEP VALIDATION (CON CONNECTION.CONFIG)

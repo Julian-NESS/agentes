@@ -7,3 +7,4 @@ pub mod performance;
 pub mod security;
 pub mod system_col;
 pub mod vendor;
+pub mod bgp;
