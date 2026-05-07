@@ -1619,7 +1619,7 @@ chmod +x "$RUN_SCRIPT"
 log_message "SUCCESS" "Script de ejecución creado: $RUN_SCRIPT"
 
 ###############################################################################
-# CONFIGURAR CRON (CADA 5 MINUTOS)
+# CONFIGURAR CRON (OPCIONES DE PROGRAMACIÓN INTERACTIVAS)
 ###############################################################################
 log_message "PROGRESS" "Configurando tarea programada (cron)..."
 
@@ -1641,12 +1641,55 @@ if ! command -v crontab &>/dev/null; then
     fi
 fi
 
-# Eliminar entradas existentes del relay
-(crontab -l 2>/dev/null | grep -v "$RUN_SCRIPT" | grep -v "ness.relay" | grep -v "ness_relay") | crontab -
+# Preguntar al administrador por la política de scheduling
+echo ""
+print_box "PROGRAMACIÓN DE ACTUALIZACIONES" "${WHITE}${BOLD}"
+echo "Elija la frecuencia con la que el agente verificará actualizaciones (recomendado: cada 12 o 24 horas)."
+echo "  1) Cada 12 horas"
+echo "  2) Cada 24 horas (hora fija)")
+echo "  3) Semanal (día y hora)"
+echo "  4) Mantener cada 5 minutos (por defecto / pruebas)"
+echo ""
+while true; do
+    read -p "Seleccione una opción [1-4] (default 2): " schedule_opt
+    schedule_opt=${schedule_opt:-2}
+    case "$schedule_opt" in
+        1)
+            CRON_EXPR="0 */12 * * *"
+            SCHEDULE_LABEL="cada 12 horas"
+            break
+            ;;
+        2)
+            read -p "Hora del día (0-23, default 3): " hour_of_day
+            hour_of_day=${hour_of_day:-3}
+            CRON_EXPR="0 ${hour_of_day} * * *"
+            SCHEDULE_LABEL="cada 24 horas a las ${hour_of_day}:00"
+            break
+            ;;
+        3)
+            echo "Días de la semana: 0=Domingo ... 6=Sábado"
+            read -p "Día de la semana (0-6, default 1=Lunes): " dow
+            dow=${dow:-1}
+            read -p "Hora del día (0-23, default 3): " hour_of_day
+            hour_of_day=${hour_of_day:-3}
+            CRON_EXPR="0 ${hour_of_day} * * ${dow}"
+            SCHEDULE_LABEL="semanal (día ${dow} a las ${hour_of_day}:00)"
+            break
+            ;;
+        4)
+            CRON_EXPR="*/5 * * * *"
+            SCHEDULE_LABEL="cada 5 minutos"
+            break
+            ;;
+        *)
+            echo "Opción no válida. Elija 1, 2, 3 o 4." ;;
+    esac
+done
 
-# Añadir nueva entrada de cron
-(crontab -l 2>/dev/null; echo "*/5 * * * * $RUN_SCRIPT") | crontab -
-log_message "SUCCESS" "Tarea programada configurada (cada 5 minutos)"
+# Eliminar entradas existentes del relay y añadir la nueva según la expresión
+(crontab -l 2>/dev/null | grep -v "$RUN_SCRIPT" | grep -v "ness.relay" | grep -v "ness_relay") | crontab -
+(crontab -l 2>/dev/null; echo "$CRON_EXPR $RUN_SCRIPT") | crontab -
+log_message "SUCCESS" "Tarea programada configurada ($SCHEDULE_LABEL)"
 
 ###############################################################################
 # PRUEBA OPCIONAL

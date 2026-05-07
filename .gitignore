@@ -33,3 +33,7 @@ ness_relay/**/output/
 .DS_Store
 .vscode/
 **/.idea/
+
+**/txts/
+# --- Ignora todos los archivos archivos .txt del repositorio
+*.txt 

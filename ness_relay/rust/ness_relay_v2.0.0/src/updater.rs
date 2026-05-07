@@ -122,9 +122,16 @@ pub async fn fetch_update_metadata(metadata_url: &str, api_token: &str) -> Resul
         .use_rustls_tls()
         .build()?;
 
-    let resp = client
-        .get(metadata_url)
-        .header("Authorization", format!("Token {}", api_token))
+    let mut req = client.get(metadata_url);
+
+    // GCS público falla con 401 cuando se envía un Authorization inválido.
+    // Solo enviamos token para endpoints que NO sean storage.googleapis.com.
+    let is_gcs_public = metadata_url.contains("storage.googleapis.com");
+    if !is_gcs_public && !api_token.trim().is_empty() {
+        req = req.header("Authorization", format!("Token {}", api_token));
+    }
+
+    let resp = req
         .send()
         .await
         .context("Error fetching metadata de versión remota")?;
@@ -302,39 +309,71 @@ pub fn extract_and_replace(zip_path: &Path, binary_name: &str) -> Result<PathBuf
     let install_dir = current_exe
         .parent()
         .ok_or_else(|| anyhow!("No se pudo determinar el directorio de instalación"))?;
+    let current_exe_name = current_exe
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("ness-relay-x86_64")
+        .to_string();
 
-    // Backup del binario actual
-    let backup_name = format!(
-        "ness_relay.{}.bak",
-        chrono::Utc::now().format("%Y%m%d_%H%M%S")
+    // Crear backup en /opt: backup_v{version}_{YYYYMMDD}
+    let date_ts = chrono::Utc::now().format("%Y%m%d").to_string();
+    let backup_dir_name = format!("backup_v{}_{}", crate::config::RELAY_VERSION, date_ts);
+    let backup_root = PathBuf::from("/opt");
+    let backup_dir = backup_root.join(&backup_dir_name);
+    if !backup_dir.exists() {
+        std::fs::create_dir_all(&backup_dir).ok();
+    }
+    let backup_path = backup_dir.join(
+        current_exe
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("ness-relay-backup"),
     );
-    let backup_path = install_dir.join(&backup_name);
     std::fs::copy(&current_exe, &backup_path)?;
-    info!("Backup del binario actual: {}", backup_path.display());
+    info!("Backup del binario actual en: {}", backup_path.display());
 
     // Extraer nuevo binario del ZIP
     let zip_file = std::fs::File::open(zip_path)?;
     let mut archive = zip::ZipArchive::new(zip_file)?;
 
-    let new_binary_path = install_dir.join(binary_name);
+    let staged_binary_path = install_dir.join(format!("{}.new", current_exe_name));
+
+    let mut candidate_names: Vec<String> = vec![
+        binary_name.to_string(),
+        current_exe_name.clone(),
+        "ness-relay-x86_64".to_string(),
+        "ness-relay".to_string(),
+        "ness_relay".to_string(),
+    ];
+    candidate_names.dedup();
 
     let mut found = false;
+    // Also prepare to extract any helper scripts (install_relay.sh) to install_dir
+    let mut staged_script_path: Option<PathBuf> = None;
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;
-        if entry.name() == binary_name || entry.name().ends_with(&format!("/{}", binary_name)) {
-            let mut out = std::fs::File::create(&new_binary_path)?;
+        let is_match = candidate_names.iter().any(|candidate| {
+            entry.name() == candidate || entry.name().ends_with(&format!("/{}", candidate))
+        });
+        if is_match {
+            let mut out = std::fs::File::create(&staged_binary_path)?;
             std::io::copy(&mut entry, &mut out)?;
             found = true;
             break;
         }
+        // If entry is a script (install_relay.sh), extract to install_dir as well
+        if entry.name().ends_with("install_relay.sh") {
+            let script_path = install_dir.join("install_relay.sh");
+            let mut out = std::fs::File::create(&script_path)?;
+            std::io::copy(&mut entry, &mut out)?;
+            staged_script_path = Some(script_path);
+        }
     }
 
     if !found {
-        // Restaurar backup
-        std::fs::copy(&backup_path, &current_exe)?;
         return Err(anyhow!(
-            "No se encontró '{}' dentro del ZIP de actualización",
-            binary_name
+            "No se encontró binario compatible en ZIP. Candidatos buscados: {}",
+            candidate_names.join(", ")
         ));
     }
 
@@ -343,37 +382,76 @@ pub fn extract_and_replace(zip_path: &Path, binary_name: &str) -> Result<PathBuf
     {
         use std::os::unix::fs::PermissionsExt;
         let perms = std::fs::Permissions::from_mode(0o755);
-        std::fs::set_permissions(&new_binary_path, perms)?;
+        std::fs::set_permissions(&staged_binary_path, perms.clone())?;
+        if let Some(script) = &staged_script_path {
+            std::fs::set_permissions(script, perms)?;
+            info!("Script instalado y permisos fijados: {}", script.display());
+        }
     }
 
-    info!("Binario actualizado: {}", new_binary_path.display());
-    Ok(new_binary_path)
+    // Reemplazo atómico: evita escribir directamente sobre un ejecutable en uso (ETXTBSY).
+    std::fs::rename(&staged_binary_path, &current_exe)
+        .context("No se pudo reemplazar el ejecutable actual de forma atómica")?;
+
+    info!("Binario actualizado: {}", current_exe.display());
+    Ok(current_exe)
 }
 
-/// Elimina backups antiguos del directorio de instalación.
-/// Mantiene los `max_count` más recientes.
-pub async fn cleanup_backups(install_dir: &Path, max_count: usize) -> Result<()> {
-    let mut backups: Vec<PathBuf> = Vec::new();
-    let mut entries = fs::read_dir(install_dir).await?;
+/// Limpia backups en `/opt` que siguen el patrón `backup_v{version}_{YYYYMMDD}`.
+/// Mantiene a lo sumo `max_versions` versiones distintas y un solo backup por versión.
+pub async fn cleanup_backups(_install_dir: &Path, max_versions: usize) -> Result<()> {
+    let root = Path::new("/opt");
+    if !root.exists() {
+        return Ok(());
+    }
 
+    // Recolectar directorios que son backups
+    let mut entries = match fs::read_dir(root).await {
+        Ok(e) => e,
+        Err(_) => return Ok(()),
+    };
+
+    let mut backups: Vec<PathBuf> = Vec::new();
     while let Some(entry) = entries.next_entry().await? {
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
-        if name_str.starts_with("ness_relay.") && name_str.ends_with(".bak") {
+        if name_str.starts_with("backup_v") {
             backups.push(entry.path());
         }
     }
 
-    // Ordenar por nombre (el timestamp en el nombre garantiza orden cronológico)
+    // Ordenar por nombre (timestamp incluido) descendente
     backups.sort();
+    backups.reverse();
 
-    if backups.len() > max_count {
-        let to_remove = backups.len() - max_count;
-        for path in backups.iter().take(to_remove) {
-            if let Err(e) = fs::remove_file(path).await {
-                warn!("No se pudo eliminar backup {}: {}", path.display(), e);
-            } else {
-                info!("Backup eliminado: {}", path.display());
+    // Mantener un único backup por versión
+    use std::collections::BTreeMap;
+    let mut by_version: BTreeMap<String, PathBuf> = BTreeMap::new();
+    for path in &backups {
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            // name formato: backup_v{version}_{YYYYMMDD}
+            if let Some(rest) = name.strip_prefix("backup_v") {
+                if let Some((ver, _date)) = rest.split_once('_') {
+                    if !by_version.contains_key(ver) {
+                        by_version.insert(ver.to_string(), path.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    // Si hay más versiones de las permitidas, eliminar las más antiguas
+    let mut kept_versions: Vec<String> = by_version.keys().cloned().collect();
+    kept_versions.sort();
+    if kept_versions.len() > max_versions {
+        let to_remove = kept_versions.len() - max_versions;
+        for ver in kept_versions.into_iter().take(to_remove) {
+            if let Some(path) = by_version.get(&ver) {
+                if let Err(e) = fs::remove_dir_all(path).await {
+                    warn!("No se pudo eliminar backup {}: {}", path.display(), e);
+                } else {
+                    info!("Backup de versión {} eliminado: {}", ver, path.display());
+                }
             }
         }
     }
@@ -389,11 +467,40 @@ pub async fn apply_update(metadata: &UpdateMetadata) -> Result<()> {
         metadata.version, metadata.pack.url
     );
 
+    // Guardar configuración crítica antes de descargar/reemplazar
+    let base_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    let appcfg = crate::config::AppConfig::load(base_dir.clone());
+
+    // Colección interval desde env o fallback a 5 minutos
+    let coll_interval = std::env::var("NESS_COLLECTION_INTERVAL_MINUTES")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(5u64);
+
+    let _cfg_path = save_config_before_update(
+        &appcfg.api_token,
+        &appcfg.server_id,
+        coll_interval,
+        appcfg.config_file.clone(),
+        appcfg.output_dir.clone(),
+        appcfg.log_dir.clone(),
+    )
+    .await?;
+
     let zip_path = download_update(&metadata.pack.url).await?;
 
     verify_hash(&zip_path, &metadata.pack.sha256).await?;
 
-    extract_and_replace(&zip_path, "ness_relay")?;
+    let fallback_name = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_name().and_then(|n| n.to_str()).map(|s| s.to_string()))
+        .unwrap_or_else(|| "ness-relay-x86_64".to_string());
+
+    extract_and_replace(&zip_path, &fallback_name)?;
     let _ = tokio::fs::remove_file(&zip_path).await;
 
     if let Ok(exe) = std::env::current_exe() {

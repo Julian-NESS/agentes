@@ -26,8 +26,8 @@ pub const RELAY_VERSION: &str = "2.0.0";
 pub const RELAY_TYPE: &str = "ness-relay";
 pub const MAX_BACKUPS: usize = 5;
 pub const UPDATE_CHECK_INTERVAL_HOURS: u64 = 24;
-pub const VERSION_CHECK_URL_GCP: &str = "https://storage.googleapis.com/repo.nesshq.com/utilities/relay/latest.json";
-pub const HOSTING_BASE_URL_GCP: &str = "https://storage.googleapis.com/repo.nesshq.com/utilities/relay";
+pub const VERSION_CHECK_URL_GCP: &str = "https://storage.googleapis.com/agent-updates-lab/utilities/relay/latest.json";
+pub const HOSTING_BASE_URL_GCP: &str = "https://storage.googleapis.com/agent-updates-lab/utilities/relay";
 
 /// URLs de servidores NESS por SERVER_ID (hardcodeadas por seguridad).
 /// El instalador solo maneja IDs (1, 2, 3) sin exponer las rutas reales.

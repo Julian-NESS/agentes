@@ -50,7 +50,21 @@ fn transform_system(payload: &mut Value) {
         basic_info.insert("sys_uptime".into(), uptime);
     }
 
-    payload["system"] = json!({ "basic_info": basic_info });
+    // Construir map de preservación: iniciar con basic_info, luego iterar system keys
+    let mut transformed = Map::new();
+    transformed.insert("basic_info".into(), Value::Object(basic_info));
+
+    // Preservar campos adicionales (timestamps, etc) que no sean los core fields
+    if let Some(sys_obj) = system.as_object() {
+        for (k, v) in sys_obj.iter() {
+            // Skip los campos que ya fueron procesados
+            if !["sys_name", "sys_descr", "sys_location", "sys_contact", "uptime"].contains(&k.as_str()) {
+                transformed.entry(k.clone()).or_insert(v.clone());
+            }
+        }
+    }
+
+    payload["system"] = Value::Object(transformed);
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +148,12 @@ fn transform_network(payload: &mut Value) {
         );
     }
 
-    network["interfaces"] = Value::Object(interfaces_dict);
+    network["interfaces"] = Value::Object(interfaces_dict.clone());
+    
+    // Remover metadatos internos
+    if let Some(network_obj) = network.as_object_mut() {
+        network_obj.remove("interface_count");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -425,6 +444,18 @@ fn transform_security(payload: &mut Value) {
         "snmp_security": snmp_security,
         "normalized": normalized,
     });
+
+    // Preservar campos adicionales (como collection_timestamp) que no sean los core security fields
+    if let Some(sec_obj) = security.as_object() {
+        if let Some(transformed) = payload.get_mut("security").and_then(|v| v.as_object_mut()) {
+            for (k, v) in sec_obj.iter() {
+                // Skip los campos que ya fueron procesados
+                if !["tcp", "udp", "ip", "icmp", "snmp_stats"].contains(&k.as_str()) {
+                    transformed.entry(k.clone()).or_insert(v.clone());
+                }
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -502,45 +533,30 @@ fn transform_mikrotik_fw_specific(payload: &mut Value, vendor_key: &str) {
     if let Some(obj) = transformed.as_object_mut() {
         // Alinear estructura de queues al formato Python:
         // { available: bool, entries: [...], summary: {...} }
+        // NO inyectar datos sintéticos - preservar exactamente como vienen del collector
         let queues_value = obj.get("queues").cloned();
         match queues_value {
             Some(Value::Array(items)) => {
-                let mut entries = Vec::new();
+                // Preservar items exactamente como vienen, solo calcular totals
+                let mut entries = items.clone();
                 let mut total_rx_gb = 0.0;
                 let mut total_tx_gb = 0.0;
-                let mut total_rx_drops: i64 = 0;
-                let mut total_tx_drops: i64 = 0;
+                let mut total_rx_drops: u64 = 0;
+                let mut total_tx_drops: u64 = 0;
 
-                for (i, item) in items.iter().enumerate() {
-                    let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let bytes_in = item.get("bytes_in").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let bytes_out = item.get("bytes_out").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let dropped = item.get("packets_dropped").and_then(|v| v.as_i64()).unwrap_or(0);
-
-                    // El collector Rust no trae todavía src/dst/interface para queue.
-                    // Se preserva compatibilidad del backend usando valores por defecto.
-                    let rx_gb = round4(bytes_in as f64 / (1024.0_f64.powi(3)));
-                    let tx_gb = round4(bytes_out as f64 / (1024.0_f64.powi(3)));
-                    total_rx_gb += rx_gb;
-                    total_tx_gb += tx_gb;
-                    total_tx_drops += dropped;
-
-                    entries.push(json!({
-                        "index": (i + 1).to_string(),
-                        "name": name,
-                        "src_addr": "",
-                        "dst_addr": "",
-                        "interface": "",
-                        "tx_bytes": bytes_out,
-                        "rx_bytes": bytes_in,
-                        "tx_packets": 0,
-                        "rx_packets": 0,
-                        "tx_drop": dropped,
-                        "rx_drop": 0,
-                        "isp_detected": serde_json::Value::Null,
-                        "tx_gb": tx_gb,
-                        "rx_gb": rx_gb,
-                    }));
+                for item in &entries {
+                    if let Some(rx) = item.get("rx_gb").and_then(|v| v.as_f64()) {
+                        total_rx_gb += rx;
+                    }
+                    if let Some(tx) = item.get("tx_gb").and_then(|v| v.as_f64()) {
+                        total_tx_gb += tx;
+                    }
+                    if let Some(rx_drop) = item.get("rx_drop").and_then(|v| v.as_u64()) {
+                        total_rx_drops += rx_drop;
+                    }
+                    if let Some(tx_drop) = item.get("tx_drop").and_then(|v| v.as_u64()) {
+                        total_tx_drops += tx_drop;
+                    }
                 }
 
                 obj.insert(
@@ -559,7 +575,7 @@ fn transform_mikrotik_fw_specific(payload: &mut Value, vendor_key: &str) {
                 );
             }
             Some(Value::Object(existing)) => {
-                // Si ya viene en formato objeto, asegurar bandera available.
+                // Si ya viene en formato objeto, preservar sin sobrescribir
                 if !existing.contains_key("available") {
                     let has_entries = existing
                         .get("entries")
@@ -589,145 +605,36 @@ fn transform_mikrotik_fw_specific(payload: &mut Value, vendor_key: &str) {
             }
         }
 
-        // Asegurar internet_channels con estructura similar a Python.
-        if !obj.contains_key("internet_channels") {
-            obj.insert(
-                "internet_channels".into(),
-                json!({
-                    "channels": [],
-                    "summary": {
-                        "total_channels": 0,
-                        "channels_up": 0,
-                        "channels_down": 0,
-                        "total_traffic_in_mb": 0,
-                        "total_traffic_out_mb": 0,
-                        "netwatch_available": obj.contains_key("netwatch_probes"),
-                        "queues_available": true,
-                    },
-                    "available": false,
-                }),
-            );
-        }
+        // Estructura MINIMALISTA de internet_channels SIN derivación heurística
+        // Solo preservar lo que viene del collector sin crear datos falsos
+        let netwatch_available = obj
+            .get("netwatch")
+            .and_then(|v| v.get("available"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        
+        let queues_available = obj
+            .get("queues")
+            .and_then(|v| v.get("available"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
-        let wan_interfaces_snapshot = obj
-            .get("wan_interfaces")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
-
-        if let Some(ch_obj) = obj.get_mut("internet_channels").and_then(|v| v.as_object_mut()) {
-            let existing_channels = ch_obj
-                .get("channels")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default();
-
-            // Si no hay canales construidos, derivarlos de wan_interfaces (paridad base con Python).
-            let channels = if existing_channels.is_empty() {
-                let mut derived = Vec::new();
-                for iface in &wan_interfaces_snapshot {
-                    let oper = iface
-                        .get("oper_status")
-                        .and_then(|v| v.as_str())
-                        .or_else(|| iface.get("operational_status").and_then(|v| v.as_str()))
-                        .unwrap_or("unknown");
-                    let in_mb = iface
-                        .get("traffic_in_mb")
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or_else(|| {
-                            iface.get("in_bytes")
-                                .and_then(|v| v.as_u64())
-                                .map(|x| x as f64 / 1_048_576.0)
-                                .unwrap_or(0.0)
-                        });
-                    let out_mb = iface
-                        .get("traffic_out_mb")
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or_else(|| {
-                            iface.get("out_bytes")
-                                .and_then(|v| v.as_u64())
-                                .map(|x| x as f64 / 1_048_576.0)
-                                .unwrap_or(0.0)
-                        });
-
-                    let name = iface.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
-                    derived.push(json!({
-                        "channel_name": name,
-                        "isp": "Desconocido",
-                        "source": "wan_interface",
-                        "oper_status": oper,
-                        "is_up": oper.eq_ignore_ascii_case("UP"),
-                        "speed_mbps": iface.get("speed_mbps").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                        "traffic_in_mb": round2(in_mb),
-                        "traffic_out_mb": round2(out_mb),
-                        "errors_in": iface.get("errors_in").and_then(|v| v.as_i64()).unwrap_or(0),
-                        "errors_out": iface.get("errors_out").and_then(|v| v.as_i64()).unwrap_or(0),
-                        "discards_in": iface.get("discards_in").and_then(|v| v.as_i64()).unwrap_or(0),
-                        "discards_out": iface.get("discards_out").and_then(|v| v.as_i64()).unwrap_or(0),
-                        "netwatch_status": serde_json::Value::Null,
-                        "alerts": if oper.eq_ignore_ascii_case("DOWN") {
-                            vec![format!("Canal WAN DOWN: {}", name)]
-                        } else {
-                            Vec::<String>::new()
-                        },
-                    }));
-                }
-                derived
-            } else {
-                existing_channels
-            };
-
-            let channels_up = channels
-                .iter()
-                .filter(|c| c.get("is_up").and_then(|v| v.as_bool()).unwrap_or(false))
-                .count();
-            let channels_down = channels
-                .iter()
-                .filter(|c| {
-                    c.get("oper_status")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.eq_ignore_ascii_case("DOWN"))
-                        .unwrap_or(false)
-                })
-                .count();
-            let total_in_mb: f64 = channels
-                .iter()
-                .map(|c| c.get("traffic_in_mb").and_then(|v| v.as_f64()).unwrap_or(0.0))
-                .sum();
-            let total_out_mb: f64 = channels
-                .iter()
-                .map(|c| c.get("traffic_out_mb").and_then(|v| v.as_f64()).unwrap_or(0.0))
-                .sum();
-
-            let netwatch_available = ch_obj
-                .get("summary")
-                .and_then(|s| s.get("netwatch_available"))
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            let queues_available = ch_obj
-                .get("summary")
-                .and_then(|s| s.get("queues_available"))
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true);
-
-            ch_obj.insert("channels".into(), Value::Array(channels.clone()));
-            ch_obj.insert(
-                "summary".into(),
-                json!({
-                    "total_channels": channels.len(),
-                    "channels_up": channels_up,
-                    "channels_down": channels_down,
-                    "total_traffic_in_mb": round2(total_in_mb),
-                    "total_traffic_out_mb": round2(total_out_mb),
+        obj.insert(
+            "internet_channels".into(),
+            json!({
+                "channels": [],
+                "summary": {
+                    "total_channels": 0,
+                    "channels_up": 0,
+                    "channels_down": 0,
+                    "total_traffic_in_mb": 0.0,
+                    "total_traffic_out_mb": 0.0,
                     "netwatch_available": netwatch_available,
                     "queues_available": queues_available,
-                }),
-            );
-            ch_obj.insert(
-                "available".into(),
-                json!(!channels.is_empty() || netwatch_available || queues_available),
-            );
-        }
+                },
+                "available": false,
+            }),
+        );
     }
     payload[vendor_key] = transformed;
 }
