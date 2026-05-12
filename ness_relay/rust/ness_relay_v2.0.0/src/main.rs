@@ -16,18 +16,10 @@
 
 mod analyzers;
 mod collectors;
-mod config;
-mod config_backup;
-mod engine;
+mod core;
 mod exporters;
-mod logging;
 mod profiles;
-mod restart_handler;
-mod server_reporter;
-mod smart_tester;
 mod snmp;
-mod updater;
-mod update_tracker;
 mod utils;
 
 use anyhow::Result;
@@ -37,8 +29,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info, warn};
 
-use crate::config::{AppConfig, load_devices_from_config};
-use crate::engine::CollectionEngine;
+use crate::core::config::{AppConfig, load_devices_from_config};
+use crate::core::engine::CollectionEngine;
 
 // ==============================================================================
 // CLI
@@ -48,7 +40,7 @@ use crate::engine::CollectionEngine;
 #[command(
     name = "ness_relay",
     about = "NESS Relay Multi-Vendor v2.0.0 — Agente de monitoreo SNMP",
-    version = config::RELAY_VERSION,
+    version = core::config::RELAY_VERSION,
     disable_version_flag = true,
     long_about = "Agente de recolección SNMP multi-vendor para la plataforma NESS.\n\
                   Compila a un binario estático musl compatible con cualquier Linux."
@@ -107,8 +99,8 @@ async fn main() -> Result<()> {
     if args.version {
         println!(
             "NESS Relay Multi-Vendor v{} ({})",
-            config::RELAY_VERSION,
-            config::RELAY_TYPE
+            core::config::RELAY_VERSION,
+            core::config::RELAY_TYPE
         );
         return Ok(());
     }
@@ -134,7 +126,7 @@ async fn main() -> Result<()> {
             .clone()
             .or_else(|| Some(app_config.server_url.clone()));
 
-        smart_tester::run_verify_setup(
+        core::smart_tester::run_verify_setup(
             app_config.config_file.clone(),
             endpoint,
             args.verify_auto_fix,
@@ -147,7 +139,7 @@ async fn main() -> Result<()> {
     let app_config = Arc::new(app_config);
 
     // Inicializar logging
-    logging::setup_logging(
+    core::logging::setup_logging(
         &app_config.log_dir,
         args.silent,
     );
@@ -155,7 +147,7 @@ async fn main() -> Result<()> {
     // Modo actualización
     if args.update {
         info!("Buscando actualizaciones…");
-        match updater::run_update(
+        match core::updater::run_update(
             &app_config.version_check_url,
             &app_config.api_token,
         )
@@ -170,7 +162,7 @@ async fn main() -> Result<()> {
 
     info!(
         "NESS Relay v{} iniciando — servidor: {}",
-        config::RELAY_VERSION,
+        core::config::RELAY_VERSION,
         app_config.server_url
     );
 
@@ -230,7 +222,7 @@ async fn run_continuous(
         interval_minutes
     );
     let delay = Duration::from_secs(interval_minutes * 60);
-    let mut update_state = update_tracker::load_state(None).unwrap_or_default();
+    let mut update_state = core::update_tracker::load_state(None).unwrap_or_default();
 
     loop {
         let devices = match load_devices_from_config(&config.config_file) {
@@ -248,24 +240,24 @@ async fn run_continuous(
         }
 
         if !skip_update_check
-            && update_tracker::should_check_now(
+            && core::update_tracker::should_check_now(
                 &update_state,
-                Some(config::UPDATE_CHECK_INTERVAL_HOURS),
+                Some(core::config::UPDATE_CHECK_INTERVAL_HOURS),
             )
         {
             info!("Iniciando chequeo programado de actualización...");
-            update_tracker::mark_check_completed(&mut update_state);
-            if let Err(e) = update_tracker::save_state(&update_state, None) {
+            core::update_tracker::mark_check_completed(&mut update_state);
+            if let Err(e) = core::update_tracker::save_state(&update_state, None) {
                 warn!("No se pudo persistir estado de chequeo: {}", e);
             }
 
-            match updater::check_for_updates(&config.version_check_url, &config.api_token).await {
+            match core::updater::check_for_updates(&config.version_check_url, &config.api_token).await {
                 Ok(Some(metadata)) => {
                     if !config.api_token.is_empty() {
-                        if let Err(e) = server_reporter::report_update_available(
+                        if let Err(e) = core::server_reporter::report_update_available(
                             &config.update_report_url,
                             &config.api_token,
-                            config::RELAY_VERSION,
+                            core::config::RELAY_VERSION,
                             &metadata.version,
                         )
                         .await
@@ -274,7 +266,7 @@ async fn run_continuous(
                         }
                     }
 
-                    if let Err(e) = updater::save_config_before_update(
+                    if let Err(e) = core::updater::save_config_before_update(
                         &config.api_token,
                         &config.server_id,
                         interval_minutes,
@@ -288,10 +280,10 @@ async fn run_continuous(
                     }
 
                     if !config.api_token.is_empty() {
-                        if let Err(e) = server_reporter::report_update_started(
+                        if let Err(e) = core::server_reporter::report_update_started(
                             &config.update_report_url,
                             &config.api_token,
-                            config::RELAY_VERSION,
+                            core::config::RELAY_VERSION,
                             &metadata.version,
                         )
                         .await
@@ -300,15 +292,15 @@ async fn run_continuous(
                         }
                     }
 
-                    match updater::apply_update(&metadata).await {
+                    match core::updater::apply_update(&metadata).await {
                         Ok(_) => {
-                            let _ = updater::restore_config_after_update().await;
+                            let _ = core::updater::restore_config_after_update().await;
 
                             if !config.api_token.is_empty() {
-                                if let Err(e) = server_reporter::report_update_completed(
+                                if let Err(e) = core::server_reporter::report_update_completed(
                                     &config.update_report_url,
                                     &config.api_token,
-                                    config::RELAY_VERSION,
+                                    core::config::RELAY_VERSION,
                                     &metadata.version,
                                 )
                                 .await
@@ -317,7 +309,7 @@ async fn run_continuous(
                                 }
                             }
 
-                            if let Err(e) = update_tracker::mark_update_pending(
+                            if let Err(e) = core::update_tracker::mark_update_pending(
                                 &mut update_state,
                                 metadata.version.clone(),
                                 None,
@@ -326,10 +318,10 @@ async fn run_continuous(
                             }
 
                             if !config.api_token.is_empty() {
-                                if let Err(e) = server_reporter::report_update_pending(
+                                if let Err(e) = core::server_reporter::report_update_pending(
                                     &config.update_report_url,
                                     &config.api_token,
-                                    config::RELAY_VERSION,
+                                    core::config::RELAY_VERSION,
                                     &metadata.version,
                                 )
                                 .await
@@ -338,12 +330,12 @@ async fn run_continuous(
                                 }
                             }
 
-                            match restart_handler::trigger_graceful_restart(
+                            match core::restart_handler::trigger_graceful_restart(
                                 &metadata.version,
                                 None,
                             ) {
                                 Ok(_) => {
-                                    if let Err(e) = update_tracker::mark_update_completed(
+                                    if let Err(e) = core::update_tracker::mark_update_completed(
                                         &mut update_state,
                                         None,
                                     ) {
@@ -355,16 +347,16 @@ async fn run_continuous(
                                 Err(e) => {
                                     let msg = format!("No se pudo marcar restart graceful: {}", e);
                                     error!("{}", msg);
-                                    let _ = update_tracker::mark_update_failed(
+                                    let _ = core::update_tracker::mark_update_failed(
                                         &mut update_state,
                                         msg.clone(),
                                         None,
                                     );
                                     if !config.api_token.is_empty() {
-                                        let _ = server_reporter::report_update_failed(
+                                        let _ = core::server_reporter::report_update_failed(
                                             &config.update_report_url,
                                             &config.api_token,
-                                            config::RELAY_VERSION,
+                                            core::config::RELAY_VERSION,
                                             &msg,
                                         )
                                         .await;
@@ -375,16 +367,16 @@ async fn run_continuous(
                         Err(e) => {
                             let msg = format!("Error aplicando actualización: {}", e);
                             error!("{}", msg);
-                            let _ = update_tracker::mark_update_failed(
+                            let _ = core::update_tracker::mark_update_failed(
                                 &mut update_state,
                                 msg.clone(),
                                 None,
                             );
                             if !config.api_token.is_empty() {
-                                let _ = server_reporter::report_update_failed(
+                                let _ = core::server_reporter::report_update_failed(
                                     &config.update_report_url,
                                     &config.api_token,
-                                    config::RELAY_VERSION,
+                                    core::config::RELAY_VERSION,
                                     &msg,
                                 )
                                 .await;

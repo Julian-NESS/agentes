@@ -605,36 +605,36 @@ fn transform_mikrotik_fw_specific(payload: &mut Value, vendor_key: &str) {
             }
         }
 
-        // Estructura MINIMALISTA de internet_channels SIN derivación heurística
-        // Solo preservar lo que viene del collector sin crear datos falsos
-        let netwatch_available = obj
-            .get("netwatch")
-            .and_then(|v| v.get("available"))
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        
-        let queues_available = obj
-            .get("queues")
-            .and_then(|v| v.get("available"))
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        // Estructura MINIMALISTA solo si internet_channels no existe
+        if !obj.contains_key("internet_channels") {
+            let netwatch_available = obj
+                .get("netwatch")
+                .and_then(|v| v.get("available"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
 
-        obj.insert(
-            "internet_channels".into(),
-            json!({
-                "channels": [],
-                "summary": {
-                    "total_channels": 0,
-                    "channels_up": 0,
-                    "channels_down": 0,
-                    "total_traffic_in_mb": 0.0,
-                    "total_traffic_out_mb": 0.0,
-                    "netwatch_available": netwatch_available,
-                    "queues_available": queues_available,
-                },
-                "available": false,
-            }),
-        );
+            let queues_available = obj
+                .get("queues")
+                .and_then(|v| v.get("available"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            obj.insert(
+                "internet_channels".into(),
+                json!({
+                    "channels": [],
+                    "summary": {
+                        "total_channels": 0,
+                        "channels_up": 0,
+                        "channels_down": 0,
+                        "total_traffic_in_mb": 0.0,
+                        "total_traffic_out_mb": 0.0,
+                        "netwatch_available": netwatch_available,
+                        "queues_available": queues_available,
+                    }
+                }),
+            );
+        }
     }
     payload[vendor_key] = transformed;
 }

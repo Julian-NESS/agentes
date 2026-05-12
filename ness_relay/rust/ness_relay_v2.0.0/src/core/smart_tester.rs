@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
-use crate::config::{load_devices_from_config, DeviceConfig};
+use super::config::{load_devices_from_config, DeviceConfig};
 use crate::snmp::{SnmpClient, SnmpVersion};
 
 const SYS_NAME_OID: &str = "1.3.6.1.2.1.1.5.0";

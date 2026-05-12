@@ -1646,7 +1646,7 @@ echo ""
 print_box "PROGRAMACIÓN DE ACTUALIZACIONES" "${WHITE}${BOLD}"
 echo "Elija la frecuencia con la que el agente verificará actualizaciones (recomendado: cada 12 o 24 horas)."
 echo "  1) Cada 12 horas"
-echo "  2) Cada 24 horas (hora fija)")
+echo "  2) Cada 24 horas (hora fija)"
 echo "  3) Semanal (día y hora)"
 echo "  4) Mantener cada 5 minutos (por defecto / pruebas)"
 echo ""

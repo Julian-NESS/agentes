@@ -162,7 +162,7 @@ pub async fn check_for_updates(
 
     match fetch_update_metadata(version_check_url, api_token).await {
         Ok(metadata) => {
-            let local_version = crate::config::RELAY_VERSION;
+            let local_version = super::config::RELAY_VERSION;
 
             match is_compatible_upgrade(local_version, &metadata.version, &metadata.min_supported) {
                 Ok(_) => {
@@ -269,7 +269,7 @@ pub async fn save_config_before_update(
     output_dir: PathBuf,
     log_dir: PathBuf,
 ) -> Result<PathBuf> {
-    let config = crate::config_backup::PreservedConfig::from_env(
+    let config = super::config_backup::PreservedConfig::from_env(
         api_token.to_string(),
         server_id.to_string(),
         collection_interval_minutes,
@@ -278,15 +278,15 @@ pub async fn save_config_before_update(
         log_dir,
     );
 
-    crate::config_backup::save_config(&config, None)
+    super::config_backup::save_config(&config, None)
         .context("No se pudo guardar configuración antes de actualizar")
 }
 
 /// Restaura la configuración después de extraer el nuevo binario.
 pub async fn restore_config_after_update() -> Result<()> {
-    match crate::config_backup::load_config(None) {
+    match super::config_backup::load_config(None) {
         Ok(config) => {
-            crate::config_backup::apply_config_as_env_vars(&config)?;
+            super::config_backup::apply_config_as_env_vars(&config)?;
             info!("Configuración restaurada después de actualización");
             Ok(())
         }
@@ -317,7 +317,7 @@ pub fn extract_and_replace(zip_path: &Path, binary_name: &str) -> Result<PathBuf
 
     // Crear backup en /opt: backup_v{version}_{YYYYMMDD}
     let date_ts = chrono::Utc::now().format("%Y%m%d").to_string();
-    let backup_dir_name = format!("backup_v{}_{}", crate::config::RELAY_VERSION, date_ts);
+    let backup_dir_name = format!("backup_v{}_{}", super::config::RELAY_VERSION, date_ts);
     let backup_root = PathBuf::from("/opt");
     let backup_dir = backup_root.join(&backup_dir_name);
     if !backup_dir.exists() {
@@ -473,7 +473,7 @@ pub async fn apply_update(metadata: &UpdateMetadata) -> Result<()> {
         .and_then(|p| p.parent().map(|p| p.to_path_buf()))
         .unwrap_or_else(|| PathBuf::from("."));
 
-    let appcfg = crate::config::AppConfig::load(base_dir.clone());
+    let appcfg = super::config::AppConfig::load(base_dir.clone());
 
     // Colección interval desde env o fallback a 5 minutos
     let coll_interval = std::env::var("NESS_COLLECTION_INTERVAL_MINUTES")
@@ -505,13 +505,13 @@ pub async fn apply_update(metadata: &UpdateMetadata) -> Result<()> {
 
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let _ = cleanup_backups(dir, crate::config::MAX_BACKUPS).await;
+            let _ = cleanup_backups(dir, super::config::MAX_BACKUPS).await;
         }
     }
 
     info!(
         "✓ Actualización completada v{} → v{}.",
-        crate::config::RELAY_VERSION,
+        super::config::RELAY_VERSION,
         metadata.version
     );
     Ok(())

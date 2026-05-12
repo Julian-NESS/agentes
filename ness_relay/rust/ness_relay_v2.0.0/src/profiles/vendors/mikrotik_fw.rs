@@ -72,37 +72,37 @@ const OID_IF_HC_IN_UCAST: &str = "1.3.6.1.2.1.31.1.1.1.7";
 const OID_IF_HC_OUT_UCAST: &str = "1.3.6.1.2.1.31.1.1.1.11";
 const OID_IF_HIGH_SPEED: &str = "1.3.6.1.2.1.31.1.1.1.15";
 
-const OID_NETWATCH_NAME: &str = "1.3.6.1.4.1.14988.1.1.7.1.1.2";
-const OID_NETWATCH_IP: &str = "1.3.6.1.4.1.14988.1.1.7.1.1.3";
-const OID_NETWATCH_INTERVAL: &str = "1.3.6.1.4.1.14988.1.1.7.1.1.5";
-const OID_NETWATCH_TIMEOUT: &str = "1.3.6.1.4.1.14988.1.1.7.1.1.6";
-const OID_NETWATCH_STATUS: &str = "1.3.6.1.4.1.14988.1.1.7.1.1.8";
+const OID_NETWATCH_NAME: &str = "1.3.6.1.4.1.14988.1.1.8.1.1.2";
+const OID_NETWATCH_IP: &str = "1.3.6.1.4.1.14988.1.1.8.1.1.3";
+const OID_NETWATCH_INTERVAL: &str = "1.3.6.1.4.1.14988.1.1.8.1.1.4";
+const OID_NETWATCH_TIMEOUT: &str = "1.3.6.1.4.1.14988.1.1.8.1.1.5";
+const OID_NETWATCH_STATUS: &str = "1.3.6.1.4.1.14988.1.1.8.1.1.6";
 
 const OID_QUEUE_NAME: &str = "1.3.6.1.4.1.14988.1.1.2.1.1.2";
 const OID_QUEUE_SRC_ADDR: &str = "1.3.6.1.4.1.14988.1.1.2.1.1.3";
 const OID_QUEUE_DST_ADDR: &str = "1.3.6.1.4.1.14988.1.1.2.1.1.4";
 const OID_QUEUE_INTERFACE: &str = "1.3.6.1.4.1.14988.1.1.2.1.1.5";
-const OID_QUEUE_TX_BYTES: &str = "1.3.6.1.4.1.14988.1.1.2.1.1.8";
-const OID_QUEUE_TX_PACKETS: &str = "1.3.6.1.4.1.14988.1.1.2.1.1.7";
+const OID_QUEUE_TX_BYTES: &str = "1.3.6.1.4.1.14988.1.1.2.1.1.7";
+const OID_QUEUE_TX_PACKETS: &str = "1.3.6.1.4.1.14988.1.1.2.1.1.8";
 const OID_QUEUE_RX_BYTES: &str = "1.3.6.1.4.1.14988.1.1.2.1.1.9";
-const OID_QUEUE_RX_PACKETS: &str = "1.3.6.1.4.1.14988.1.1.2.1.1.6";
-const OID_QUEUE_TX_DROP: &str = "1.3.6.1.4.1.14988.1.1.2.1.1.10";
-const OID_QUEUE_RX_DROP: &str = "1.3.6.1.4.1.14988.1.1.2.1.1.14";
+const OID_QUEUE_RX_PACKETS: &str = "1.3.6.1.4.1.14988.1.1.2.1.1.10";
+const OID_QUEUE_TX_DROP: &str = "1.3.6.1.4.1.14988.1.1.2.1.1.11";
+const OID_QUEUE_RX_DROP: &str = "1.3.6.1.4.1.14988.1.1.2.1.1.12";
 
-const OID_MTXR_FIRMWARE_VERSION: &str = "1.3.6.1.4.1.14988.1.1.7.7.0";
-const OID_MTXR_LICENSE_ID: &str = "1.3.6.1.4.1.14988.1.1.7.1.0";
+const OID_MTXR_FIRMWARE_VERSION: &str = "1.3.6.1.4.1.14988.1.1.4.4.0";
+const OID_MTXR_LICENSE_ID: &str = "1.3.6.1.4.1.14988.1.1.4.3.0";
 const OID_MTXR_SERIAL_NUMBER: &str = "1.3.6.1.4.1.14988.1.1.7.3.0";
-const OID_MTXR_FIRMWARE_UPGRADE: &str = "1.3.6.1.4.1.14988.1.1.7.6.0";
+const OID_MTXR_FIRMWARE_UPGRADE: &str = "1.3.6.1.4.1.14988.1.1.4.7.0";
 const OID_MTXR_BOARD_NAME: &str = "1.3.6.1.4.1.14988.1.1.7.8.0";
-const OID_MTXR_HL_TEMPERATURE: &str = "1.3.6.1.4.1.14988.1.1.3.1.0";
-const OID_MTXR_HL_PROCESSOR_TEMP: &str = "1.3.6.1.4.1.14988.1.1.3.10.0";
-const OID_MTXR_HL_VOLTAGE: &str = "1.3.6.1.4.1.14988.1.1.3.2.0";
-const OID_MTXR_HL_CURRENT: &str = "1.3.6.1.4.1.14988.1.1.3.8.0";
-const OID_MTXR_HL_POWER: &str = "1.3.6.1.4.1.14988.1.1.3.9.0";
-const OID_MTXR_HL_FAN1: &str = "1.3.6.1.4.1.14988.1.1.3.11.0";
-const OID_MTXR_HL_FAN2: &str = "1.3.6.1.4.1.14988.1.1.3.12.0";
-const OID_MTXR_HL_DISK_TOTAL: &str = "1.3.6.1.4.1.14988.1.1.4.3.0";
-const OID_MTXR_HL_DISK_USED: &str = "1.3.6.1.4.1.14988.1.1.4.4.0";
+const OID_MTXR_HL_TEMPERATURE: &str = "1.3.6.1.4.1.14988.1.1.3.10.0";
+const OID_MTXR_HL_PROCESSOR_TEMP: &str = "1.3.6.1.4.1.14988.1.1.3.11.0";
+const OID_MTXR_HL_VOLTAGE: &str = "1.3.6.1.4.1.14988.1.1.3.8.0";
+const OID_MTXR_HL_CURRENT: &str = "1.3.6.1.4.1.14988.1.1.3.9.0";
+const OID_MTXR_HL_POWER: &str = "1.3.6.1.4.1.14988.1.1.3.12.0";
+const OID_MTXR_HL_FAN1: &str = "1.3.6.1.4.1.14988.1.1.3.17.0";
+const OID_MTXR_HL_FAN2: &str = "1.3.6.1.4.1.14988.1.1.3.18.0";
+const OID_MTXR_HL_DISK_TOTAL: &str = "1.3.6.1.4.1.14988.1.1.3.1.0";
+const OID_MTXR_HL_DISK_USED: &str = "1.3.6.1.4.1.14988.1.1.3.2.0";
 
 // ==============================================================================
 // STRUCTS PARA DATOS ESTRUCTURADOS
@@ -133,14 +133,16 @@ impl WanInterface {
     fn to_json(&self) -> Value {
         let in_mb = bytes_to_gb(self.traffic_in_bytes as f64) * 1024.0;
         let out_mb = bytes_to_gb(self.traffic_out_bytes as f64) * 1024.0;
+        let admin_status = status_to_text(self.admin_status);
+        let oper_status = status_to_text(self.oper_status);
         json!({
             "index": self.index,
             "name": self.name,
             "if_name": self.if_name,
             "alias": self.alias,
             "is_wan": self.is_wan,
-            "admin_status": self.admin_status,
-            "oper_status": self.oper_status,
+            "admin_status": admin_status,
+            "oper_status": oper_status,
             "speed_mbps": self.speed_mbps,
             "traffic_in_mb": round2(in_mb),
             "traffic_out_mb": round2(out_mb),
@@ -375,9 +377,9 @@ impl DeviceProfile for MikroTikFwProfile {
             if total_bytes > 0.0 {
                 disks.push(json!({
                     "mount": clean_text(&descr),
-                    "total_gb": round2(bytes_to_gb(total_bytes)),
-                    "used_gb": round2(bytes_to_gb(used_bytes)),
-                    "free_gb": round2(bytes_to_gb(free_bytes)),
+                    "total_gb": round3(bytes_to_gb(total_bytes)),
+                    "used_gb": round3(bytes_to_gb(used_bytes)),
+                    "free_gb": round3(bytes_to_gb(free_bytes)),
                     "usage_percent": round2(calculate_percentage(used_bytes, total_bytes)),
                 }));
             }
@@ -393,8 +395,9 @@ impl DeviceProfile for MikroTikFwProfile {
             .unwrap_or(0.0);
 
         if mem_total == 0.0 {
+            let disk_key = if data.get("disks").is_some() { "disks" } else { "disk" };
             let mut found_idx = None;
-            if let Some(disks) = data.get("disk").and_then(|d| d.as_array()) {
+            if let Some(disks) = data.get(disk_key).and_then(|d| d.as_array()) {
                 for (idx, disk) in disks.iter().enumerate() {
                     let mount = disk.get("mount").and_then(|m| m.as_str()).unwrap_or("");
                     if mount.to_lowercase().contains("main memory") {
@@ -403,9 +406,9 @@ impl DeviceProfile for MikroTikFwProfile {
                     }
                 }
             }
-            
+
             if let Some(idx) = found_idx {
-                if let Some(disk) = data.get("disk").and_then(|d| d.as_array()).and_then(|a| a.get(idx)) {
+                if let Some(disk) = data.get(disk_key).and_then(|d| d.as_array()).and_then(|a| a.get(idx)) {
                     let total = disk.get("total_gb").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let used = disk.get("used_gb").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let usage = disk.get("usage_percent").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -419,11 +422,37 @@ impl DeviceProfile for MikroTikFwProfile {
                     }
                 }
                 // Remover del array de disks
-                if let Some(disk_array) = data.get_mut("disk").and_then(|d| d.as_array_mut()) {
+                if let Some(disk_array) = data.get_mut(disk_key).and_then(|d| d.as_array_mut()) {
                     disk_array.remove(idx);
                 }
             }
         }
+        data
+    }
+
+    fn finalize_collected_data(&self, mut data: Value) -> Value {
+        let vendor_key = format!("{}_specific", self.vendor());
+        let avg_cpu = data
+            .get(&vendor_key)
+            .and_then(|v| v.get("cpu_detailed"))
+            .and_then(|v| v.get("average_percent"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+
+        if avg_cpu > 0.0 {
+            if let Some(cpu_obj) = data.get_mut("performance")
+                .and_then(|p| p.get_mut("cpu"))
+                .and_then(|c| c.as_object_mut()) {
+                let current = cpu_obj
+                    .get("cpu_usage_percent")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                if current == 0.0 {
+                    cpu_obj.insert("cpu_usage_percent".into(), json!(round2(avg_cpu)));
+                }
+            }
+        }
+
         data
     }
 
@@ -518,7 +547,7 @@ async fn collect_health(client: &SnmpClient) -> Value {
         health.insert("temperature_celsius".into(), json!(round1(temp as f64 / 10.0)));
     }
     if let Some(proc_temp) = snmp_get_i64(client, OID_MTXR_HL_PROCESSOR_TEMP).await {
-        health.insert("processor_temp_celsius".into(), json!(round1(proc_temp as f64)));
+        health.insert("processor_temp_celsius".into(), json!(round1(proc_temp as f64 / 10.0)));
     }
     if let Some(voltage) = snmp_get_i64(client, OID_MTXR_HL_VOLTAGE).await {
         health.insert("voltage_volts".into(), json!(round1(voltage as f64 / 10.0)));
@@ -545,9 +574,13 @@ async fn collect_cpu_detailed(client: &SnmpClient) -> Value {
     let mut cores = Vec::new();
     let mut total = 0.0;
     
-    for (_oid, val) in cpu_results {
+    for (oid, val) in cpu_results {
         if let Some(usage) = val.as_f64() {
-            cores.push(json!(round2(usage)));
+            let idx = oid_index(&oid);
+            cores.push(json!({
+                "index": idx,
+                "load_percent": round2(usage),
+            }));
             total += usage;
         }
     }
@@ -586,6 +619,7 @@ async fn collect_disk_fallback(client: &SnmpClient) -> Value {
 }
 
 async fn collect_wan_interfaces(client: &SnmpClient) -> Vec<WanInterface> {
+    let (if_descrs, _) = client.bulk(OID_IF_DESCR, 50).await;
     let (if_names, _) = client.bulk(OID_IF_NAME, 50).await;
     let (if_aliases, _) = client.bulk(OID_IF_ALIAS, 50).await;
     let (if_admin_status, _) = client.bulk(OID_IF_ADMIN_STATUS, 50).await;
@@ -602,18 +636,31 @@ async fn collect_wan_interfaces(client: &SnmpClient) -> Vec<WanInterface> {
 
     // Build maps
     let mut results = Vec::new();
-    for (oid, name_val) in if_names {
+    let base_list = if !if_descrs.is_empty() { &if_descrs } else { &if_names };
+    for (oid, name_val) in base_list {
         let idx = oid_index(&oid);
-        let name = name_val.as_string();
-        
-        if !is_wan_candidate(&name) {
-            continue;
-        }
+        let name = clean_text(&name_val.as_string());
 
-        let if_name = name.clone();
+        let if_name = if_names.iter()
+            .find(|(o, _)| oid_index(o) == idx)
+            .map(|(_, v)| clean_text(&v.as_string()))
+            .unwrap_or_else(|| name.clone());
+
         let alias = if_aliases.iter()
             .find(|(o, _)| oid_index(o) == idx)
-            .map(|(_, v)| v.as_string());
+            .map(|(_, v)| clean_text(&v.as_string()))
+            .filter(|s| !s.is_empty());
+
+        let mut is_wan = is_wan_candidate(&name) || is_wan_candidate(&if_name);
+        if let Some(ref a) = alias {
+            if is_wan_candidate(a) {
+                is_wan = true;
+            }
+        }
+
+        if !is_wan {
+            continue;
+        }
 
         let admin_status = if_admin_status.iter()
             .find(|(o, _)| oid_index(o) == idx)
@@ -670,7 +717,15 @@ async fn collect_wan_interfaces(client: &SnmpClient) -> Vec<WanInterface> {
             .and_then(|(_, v)| v.as_u64())
             .unwrap_or(0);
 
-        let isp = detect_isp_from_name(&name);
+        let mut isp = detect_isp_from_name(&name);
+        if isp.is_none() {
+            if let Some(ref a) = alias {
+                isp = detect_isp_from_name(a);
+            }
+        }
+        if isp.is_none() {
+            isp = detect_isp_from_name(&if_name);
+        }
 
         results.push(WanInterface {
             index: idx,
@@ -734,7 +789,11 @@ async fn collect_netwatch(client: &SnmpClient) -> (Vec<NetwatchProbe>, bool) {
             .and_then(|(_, v)| v.as_i64())
             .unwrap_or(0) as u8;
 
-        let status_text = if status == 1 { "up".to_string() } else { "down".to_string() };
+        let status_text = match status {
+            1 => "up".to_string(),
+            2 => "down".to_string(),
+            _ => "unknown".to_string(),
+        };
         let isp = detect_isp_from_name(&name);
 
         results.push(NetwatchProbe {
@@ -757,9 +816,9 @@ fn build_netwatch_payload(probes: &[NetwatchProbe], available: bool) -> Value {
     let up = probes.iter().filter(|p| p.status == 1).count();
     let down = total - up;
     let availability = if total > 0 {
-        (up as f64 / total as f64) * 100.0
+        Some(round2((up as f64 / total as f64) * 100.0))
     } else {
-        0.0
+        None
     };
 
     json!({
@@ -768,7 +827,7 @@ fn build_netwatch_payload(probes: &[NetwatchProbe], available: bool) -> Value {
             "total": total,
             "up": up,
             "down": down,
-            "availability_percent": round2(availability),
+            "availability_percent": availability,
         },
         "available": available,
     })
@@ -799,17 +858,17 @@ async fn collect_queues(client: &SnmpClient) -> (Vec<QueueEntry>, bool) {
 
         let src_addr = q_src_addrs.iter()
             .find(|(o, _)| oid_index(o) == idx)
-            .map(|(_, v)| v.as_string())
+            .map(|(_, v)| snmp_addr_to_string(v))
             .unwrap_or_default();
 
         let dst_addr = q_dst_addrs.iter()
             .find(|(o, _)| oid_index(o) == idx)
-            .map(|(_, v)| v.as_string())
+            .map(|(_, v)| snmp_addr_to_string(v))
             .unwrap_or_default();
 
         let interface = q_interfaces.iter()
             .find(|(o, _)| oid_index(o) == idx)
-            .map(|(_, v)| v.as_string())
+            .map(|(_, v)| clean_text(&v.as_string()))
             .unwrap_or_default();
 
         let tx_bytes = q_tx_bytes.iter()
@@ -890,83 +949,207 @@ fn build_internet_channels_summary(
     queue_entries: &[QueueEntry],
     queues_available: bool,
 ) -> Value {
-    let mut channels = Vec::new();
-    let mut channel_map: HashMap<String, Value> = HashMap::new();
+    let mut channels: Vec<Value> = Vec::new();
+    let mut seen_isps: HashMap<String, usize> = HashMap::new();
 
-    // Agregar canales desde WAN interfaces
-    for wan in wan_interfaces {
-        let isp_name = wan.isp_detected.clone().unwrap_or_else(|| "Unknown".to_string());
-        channel_map.entry(isp_name.clone())
-            .or_insert_with(|| json!({
-                "channel_name": isp_name,
-                "isp": isp_name,
-                "wan_interface": wan.name,
-                "oper_status": wan.oper_status,
+    // 1) Canales basados en interfaces WAN
+    for iface in wan_interfaces {
+        let channel_name = iface.alias.clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| if !iface.if_name.is_empty() { iface.if_name.clone() } else { iface.name.clone() });
+        let isp = iface.isp_detected.clone().unwrap_or_else(|| "Desconocido".to_string());
+        let oper_status = status_to_text(iface.oper_status).to_string();
+        let is_up = oper_status.eq_ignore_ascii_case("UP");
+
+        let traffic_in_mb = round2(bytes_to_gb(iface.traffic_in_bytes as f64) * 1024.0);
+        let traffic_out_mb = round2(bytes_to_gb(iface.traffic_out_bytes as f64) * 1024.0);
+
+        let mut channel = json!({
+            "channel_name": channel_name,
+            "isp": isp,
+            "source": "wan_interface",
+            "oper_status": oper_status,
+            "is_up": is_up,
+            "speed_mbps": iface.speed_mbps,
+            "traffic_in_mb": traffic_in_mb,
+            "traffic_out_mb": traffic_out_mb,
+            "errors_in": iface.errors_in,
+            "errors_out": iface.errors_out,
+            "discards_in": iface.discards_in,
+            "discards_out": iface.discards_out,
+            "netwatch_status": Value::Null,
+            "alerts": [],
+        });
+
+        if let Some(obj) = channel.as_object_mut() {
+            let alerts = check_channel_alerts(obj);
+            obj.insert("alerts".into(), json!(alerts));
+        }
+
+        if let Some(ref isp_name) = iface.isp_detected {
+            if !seen_isps.contains_key(isp_name) {
+                seen_isps.insert(isp_name.clone(), channels.len());
+            }
+        }
+        channels.push(channel);
+    }
+
+    // 2) Enriquecer con Netwatch (por ISP detectado en el nombre del probe)
+    if netwatch_available {
+        for probe in netwatch_probes {
+            let probe_isp = probe.isp_detected.clone();
+            let probe_name = probe.name.clone();
+            let probe_status = probe.status_text.clone();
+
+            if let Some(isp_name) = probe_isp.clone() {
+                if let Some(idx) = seen_isps.get(&isp_name).copied() {
+                    if let Some(obj) = channels.get_mut(idx).and_then(|v| v.as_object_mut()) {
+                        obj.insert("netwatch_status".into(), json!(probe_status.clone()));
+                        obj.insert("netwatch_probe".into(), json!(probe.target_ip.clone()));
+                        obj.insert("netwatch_probe_name".into(), json!(probe_name.clone()));
+                    }
+                    continue;
+                }
+            }
+
+            let channel = json!({
+                "channel_name": probe_name,
+                "isp": probe_isp.clone().unwrap_or_else(|| "Desconocido".to_string()),
+                "source": "netwatch",
+                "oper_status": "unknown",
+                "is_up": probe_status == "up",
+                "speed_mbps": 0,
                 "traffic_in_mb": 0.0,
                 "traffic_out_mb": 0.0,
+                "errors_in": 0,
+                "errors_out": 0,
+                "discards_in": 0,
+                "discards_out": 0,
+                "netwatch_status": probe_status,
+                "netwatch_probe": probe.target_ip.clone(),
+                "netwatch_probe_name": probe.name.clone(),
                 "alerts": [],
-            }));
+            });
+
+            if let Some(ref isp_name) = probe_isp {
+                if !seen_isps.contains_key(isp_name) {
+                    seen_isps.insert(isp_name.clone(), channels.len());
+                }
+            }
+            channels.push(channel);
+        }
     }
 
-    // Agregar datos de Netwatch
-    for probe in netwatch_probes {
-        let isp_name = probe.isp_detected.clone().unwrap_or_else(|| "Unknown".to_string());
-        channel_map.entry(isp_name.clone())
-            .or_insert_with(|| json!({
-                "channel_name": isp_name,
-                "isp": isp_name,
-                "netwatch_probe": probe.name,
-                "probe_status": probe.status_text,
-            }));
-    }
+    // 3) Enriquecer con Queue (tráfico por ISP)
+    if queues_available {
+        for entry in queue_entries {
+            if let Some(ref isp_name) = entry.isp_detected {
+                if let Some(idx) = seen_isps.get(isp_name).copied() {
+                    if let Some(obj) = channels.get_mut(idx).and_then(|v| v.as_object_mut()) {
+                        obj.insert("queue_tx_gb".into(), json!(round4(entry.tx_gb())));
+                        obj.insert("queue_rx_gb".into(), json!(round4(entry.rx_gb())));
+                        obj.insert("queue_tx_drops".into(), json!(entry.tx_drop));
+                        obj.insert("queue_rx_drops".into(), json!(entry.rx_drop));
 
-    // Agregar datos de Queues
-    for queue in queue_entries {
-        let isp_name = queue.isp_detected.clone().unwrap_or_else(|| "Unknown".to_string());
-        if let Some(channel) = channel_map.get_mut(&isp_name) {
-            let in_mb = bytes_to_gb(queue.rx_bytes as f64) * 1024.0;
-            let out_mb = bytes_to_gb(queue.tx_bytes as f64) * 1024.0;
-            if let Some(obj) = channel.as_object_mut() {
-                obj.insert("traffic_in_mb".into(), json!(round2(in_mb)));
-                obj.insert("traffic_out_mb".into(), json!(round2(out_mb)));
+                        if entry.tx_drop > 0 || entry.rx_drop > 0 {
+                            let total_drops = entry.tx_drop + entry.rx_drop;
+                            let mut alerts = obj.get("alerts")
+                                .and_then(|v| v.as_array())
+                                .cloned()
+                                .unwrap_or_default();
+                            alerts.push(Value::String(format!(
+                                "Queue drops detectados en canal {}: {} drops",
+                                isp_name, total_drops
+                            )));
+                            obj.insert("alerts".into(), Value::Array(alerts));
+                        }
+                    }
+                }
             }
         }
     }
 
-    for (_, channel) in channel_map {
-        channels.push(channel);
-    }
-
-    let total_traffic_in: f64 = channels.iter()
-        .filter_map(|c| c.get("traffic_in_mb").and_then(|v| v.as_f64()))
-        .sum();
-    let total_traffic_out: f64 = channels.iter()
-        .filter_map(|c| c.get("traffic_out_mb").and_then(|v| v.as_f64()))
-        .sum();
-
-    let channels_up = channels.iter()
-        .filter(|c| c.get("oper_status").and_then(|v| v.as_u64()).unwrap_or(0) == 1)
+    // 4) Summary global
+    let up_count = channels.iter()
+        .filter(|c| c.get("is_up").and_then(|v| v.as_bool()).unwrap_or(false))
         .count();
-    let channels_down = channels.len() - channels_up;
+    let down_count = channels.iter()
+        .filter(|c| {
+            !c.get("is_up").and_then(|v| v.as_bool()).unwrap_or(false)
+                && c.get("oper_status")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s != "unknown")
+                    .unwrap_or(false)
+        })
+        .count();
+    let total_in_mb: f64 = channels.iter()
+        .map(|c| c.get("traffic_in_mb").and_then(|v| v.as_f64()).unwrap_or(0.0))
+        .sum();
+    let total_out_mb: f64 = channels.iter()
+        .map(|c| c.get("traffic_out_mb").and_then(|v| v.as_f64()).unwrap_or(0.0))
+        .sum();
 
     json!({
         "channels": channels,
         "summary": {
             "total_channels": channels.len(),
-            "channels_up": channels_up,
-            "channels_down": channels_down,
-            "total_traffic_in_mb": round2(total_traffic_in),
-            "total_traffic_out_mb": round2(total_traffic_out),
+            "channels_up": up_count,
+            "channels_down": down_count,
+            "total_traffic_in_mb": round2(total_in_mb),
+            "total_traffic_out_mb": round2(total_out_mb),
             "netwatch_available": netwatch_available,
             "queues_available": queues_available,
         },
-        "available": netwatch_available || queues_available,
     })
 }
 
 // ==============================================================================
 // HELPER FUNCTIONS
 // ==============================================================================
+
+fn status_to_text(status: u8) -> &'static str {
+    match status {
+        1 => "UP",
+        2 => "DOWN",
+        _ => "unknown",
+    }
+}
+
+fn check_channel_alerts(channel: &Map<String, Value>) -> Vec<String> {
+    let mut alerts = Vec::new();
+    let channel_name = channel
+        .get("channel_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("desconocido");
+    let oper_status = channel
+        .get("oper_status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+
+    if oper_status.eq_ignore_ascii_case("DOWN") {
+        alerts.push(format!("Canal WAN DOWN: {}", channel_name));
+    }
+
+    let errors_in = channel.get("errors_in").and_then(|v| v.as_u64()).unwrap_or(0);
+    let errors_out = channel.get("errors_out").and_then(|v| v.as_u64()).unwrap_or(0);
+    if errors_in + errors_out > 100 {
+        alerts.push(format!(
+            "Alto numero de errores en interfaz WAN: IN={} OUT={}",
+            errors_in, errors_out
+        ));
+    }
+
+    let discards_in = channel.get("discards_in").and_then(|v| v.as_u64()).unwrap_or(0);
+    let discards_out = channel.get("discards_out").and_then(|v| v.as_u64()).unwrap_or(0);
+    if discards_in + discards_out > 500 {
+        alerts.push(format!(
+            "Descartes elevados en interfaz WAN: {} paquetes",
+            discards_in + discards_out
+        ));
+    }
+
+    alerts
+}
 
 fn is_wan_candidate(name: &str) -> bool {
     let lower = name.to_lowercase();
@@ -1015,9 +1198,9 @@ fn clean_text(s: &str) -> String {
 fn snmp_addr_to_string(value: &SnmpValue) -> String {
     match value {
         SnmpValue::IpAddress(ip) => ip.clone(),
-        SnmpValue::OctetString(s) => s.clone(),
+        SnmpValue::OctetString(s) => clean_text(s),
         SnmpValue::OctetStringRaw(_) => "unknown".to_string(),
-        _ => value.as_string(),
+        _ => clean_text(&value.as_string()),
     }
 }
 

@@ -26,7 +26,7 @@ use tracing::{error, info, warn};
 use crate::analyzers::{performance as perf_analyzer, security as sec_analyzer};
 use crate::collectors::{network, performance as perf_collector, security as sec_collector,
                          system_col, vendor as vendor_collector};
-use crate::config::{AppConfig, DeviceConfig};
+use super::config::{AppConfig, DeviceConfig};
 use crate::exporters::{json_exporter, payload_compat, server_sender};
 use crate::profiles::loader::ProfileLoader;
 use crate::snmp::SnmpClient;
@@ -119,8 +119,8 @@ impl CollectionEngine {
                 "vendor": profile.vendor(),
                 "vendor_display_name": profile.vendor_display_name(),
                 "device_type": profile.device_type(),
-                "relay_version": crate::config::RELAY_VERSION,
-                "relay_type":    crate::config::RELAY_TYPE,
+                "relay_version": super::config::RELAY_VERSION,
+                "relay_type":    super::config::RELAY_TYPE,
                 "description":   device.description,
             },
             "system":      system_data,
@@ -253,8 +253,8 @@ impl CollectionEngine {
                 "vendor": profile.vendor(),
                 "vendor_display_name": profile.vendor_display_name(),
                 "device_type": profile.device_type(),
-                "relay_version": crate::config::RELAY_VERSION,
-                "relay_type":    crate::config::RELAY_TYPE,
+                "relay_version": super::config::RELAY_VERSION,
+                "relay_type":    super::config::RELAY_TYPE,
                 "description":   device.description,
                 "collection_end": now_iso(),
             },
