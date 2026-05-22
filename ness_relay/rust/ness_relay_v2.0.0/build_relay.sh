@@ -95,6 +95,7 @@ esac
 
 BINARY_PATH="${PROJECT_DIR}/target/${TARGET}/${PROFILE}/${BINARY_NAME}"
 ARCH_BINARY_NAME="${BINARY_NAME}-${ARCH}"
+OUTPUT_BINARY_NAME="${ARCH_BINARY_NAME}"
 
 echo "══════════════════════════════════════════════════════"
 echo "  NESS Relay v2.0.0 — Build ${PROFILE} para ${ARCH}"
@@ -281,12 +282,12 @@ if [[ ! -f "${BINARY_PATH}" ]]; then
 fi
 
 mkdir -p "${OUTPUT_DIR}"
-cp "${BINARY_PATH}" "${OUTPUT_DIR}/${BINARY_NAME}"
-cp "${BINARY_PATH}" "${OUTPUT_DIR}/${ARCH_BINARY_NAME}"
+rm -f "${OUTPUT_DIR}/${BINARY_NAME}"
+cp "${BINARY_PATH}" "${OUTPUT_DIR}/${OUTPUT_BINARY_NAME}"
 
 # Verificar que sea estático
 if command -v ldd &>/dev/null; then
-    LDD_OUT=$(ldd "${OUTPUT_DIR}/${ARCH_BINARY_NAME}" 2>&1 || true)
+    LDD_OUT=$(ldd "${OUTPUT_DIR}/${OUTPUT_BINARY_NAME}" 2>&1 || true)
     if echo "${LDD_OUT}" | grep -q "not a dynamic executable\|statically linked\|Nicht ein dynamisch"; then
         echo "  ✓ Binario 100% estático (sin dependencias externas)"
     else
@@ -295,12 +296,11 @@ if command -v ldd &>/dev/null; then
     fi
 fi
 
-BINARY_SIZE=$(du -sh "${OUTPUT_DIR}/${ARCH_BINARY_NAME}" | cut -f1)
+BINARY_SIZE=$(du -sh "${OUTPUT_DIR}/${OUTPUT_BINARY_NAME}" | cut -f1)
 echo ""
 echo "══════════════════════════════════════════════════════"
 echo "  Build completado exitosamente!"
-echo "  Binario : ${OUTPUT_DIR}/${ARCH_BINARY_NAME}"
-echo "  Alias   : ${OUTPUT_DIR}/${BINARY_NAME}"
+echo "  Binario : ${OUTPUT_DIR}/${OUTPUT_BINARY_NAME}"
 echo "  Tamaño  : ${BINARY_SIZE}"
 echo "══════════════════════════════════════════════════════"
 echo ""

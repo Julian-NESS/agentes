@@ -7,9 +7,12 @@ use std::process::Command;
 use std::time::Duration;
 
 use super::config::{load_devices_from_config, DeviceConfig};
+use crate::profiles::loader::ProfileLoader;
 use crate::snmp::{SnmpClient, SnmpVersion};
 
 const SYS_NAME_OID: &str = "1.3.6.1.2.1.1.5.0";
+const SYS_DESCR_OID: &str = "1.3.6.1.2.1.1.1.0";
+const SYS_OBJECT_ID_OID: &str = "1.3.6.1.2.1.1.2.0";
 const AUTOCOMPLETE_FILE: &str = "/tmp/ness_smart_tester_autocomplete.conf";
 
 pub async fn run_verify_setup(
@@ -43,7 +46,7 @@ pub async fn run_verify_setup(
             }
 
             if allow_snmp {
-                if let Some(manual_device) = prompt_manual_snmp_device(&ip, assume_yes)? {
+                if let Some(manual_device) = prompt_manual_snmp_device(&ip, assume_yes).await? {
                     devices.push(manual_device);
                 }
             } else {
@@ -257,7 +260,7 @@ fn prompt_manual_target_ip(assume_yes: bool) -> Result<Option<String>> {
     }
 }
 
-fn prompt_manual_snmp_device(ip: &str, assume_yes: bool) -> Result<Option<DeviceConfig>> {
+async fn prompt_manual_snmp_device(ip: &str, assume_yes: bool) -> Result<Option<DeviceConfig>> {
     if assume_yes || !io::stdin().is_terminal() {
         return Ok(None);
     }
@@ -371,6 +374,26 @@ fn prompt_manual_snmp_device(ip: &str, assume_yes: bool) -> Result<Option<Device
                 device.community = community.trim().to_string();
             }
         }
+    }
+
+    let profile_loader = ProfileLoader::new();
+    if let Ok(client) = SnmpClient::new(&device.to_json()).await {
+        let sys_descr = client.get(SYS_DESCR_OID).await
+            .value
+            .as_ref()
+            .map(|v| v.as_string())
+            .unwrap_or_default();
+        let sys_object_id = client.get(SYS_OBJECT_ID_OID).await
+            .value
+            .as_ref()
+            .map(|v| v.as_string())
+            .unwrap_or_default();
+
+        let resolved_profile = profile_loader.resolve_profile(&device.vendor, &sys_object_id, &sys_descr);
+        if resolved_profile.vendor() != device.vendor {
+            println!("[OK] Vendor detectado automáticamente: {} ({})", resolved_profile.vendor_display_name(), resolved_profile.vendor());
+        }
+        device.vendor = resolved_profile.vendor().to_string();
     }
 
     Ok(Some(device))

@@ -89,6 +89,45 @@ impl ProfileLoader {
         }
         None
     }
+
+    /// Resuelve el mejor perfil disponible usando sysObjectID y como respaldo sysDescr.
+    pub fn resolve_profile(
+        &self,
+        fallback_vendor: &str,
+        sys_object_id: &str,
+        sys_descr: &str,
+    ) -> Arc<dyn DeviceProfile> {
+        if let Some(profile) = self.auto_detect(sys_object_id) {
+            return profile;
+        }
+
+        let normalized_descr = sys_descr.to_lowercase();
+        let inferred_vendor = if normalized_descr.contains("pfsense") {
+            Some("pfsense")
+        } else if normalized_descr.contains("fortinet") || normalized_descr.contains("fortigate") {
+            Some("fortinet")
+        } else if normalized_descr.contains("mikrotik") || normalized_descr.contains("routeros") {
+            Some("mikrotik")
+        } else if normalized_descr.contains("ubiquiti") || normalized_descr.contains("ubnt") {
+            Some("ubnt")
+        } else if normalized_descr.contains("cisco") {
+            Some("cisco")
+        } else if normalized_descr.contains("cambium") {
+            Some("c_n")
+        } else if normalized_descr.contains("windows") {
+            Some("windows")
+        } else if normalized_descr.contains("linux") || normalized_descr.contains("freebsd") {
+            Some("linux")
+        } else {
+            None
+        };
+
+        if let Some(vendor) = inferred_vendor {
+            return self.get_profile(vendor);
+        }
+
+        self.get_profile(fallback_vendor)
+    }
 }
 
 impl Default for ProfileLoader {

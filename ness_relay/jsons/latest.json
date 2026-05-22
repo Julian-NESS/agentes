@@ -1,27 +1,39 @@
 {
   "version": "2.0.2",
   "release_date": "2026-05-02",
-  "arch": "x86_64",
-  "platform": "linux",
   "min_supported": "2.0.0",
-  "base_url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/2.0.2",
-  "files": {
-    "ness_relay": {
-      "sha256": "c417254f0008b22b809f4aba7b901396b94beee8449033653366c8f51db081ea",
-      "size": 0
+  "installer": {
+    "url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/2.0.2/install_relay.sh",
+    "fileName": "install_relay.sh",
+    "sha256": "561640cb1204c3a09cc1e6984f07602659d12e8b6df7e92def19d1a54e12bd4b"
+  },
+  "variants": [
+    {
+      "arch": "x86_64",
+      "platform": "linux",
+      "binary": {
+        "url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/2.0.2/ness-relay-x86_64",
+        "fileName": "ness-relay-x86_64",
+        "sha256": "f699990e69c6e8a45fdf6e5fcca328fa885c2c95e5fbe8948bda8f9067555462"
+      }
+    },
+    {
+      "arch": "aarch64",
+      "platform": "linux",
+      "binary": {
+        "url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/2.0.2/ness-relay-aarch64",
+        "fileName": "ness-relay-aarch64",
+        "sha256": "31fcd0b656fd40c0158c6489404ce51d54443c49056a4bd2f0c4a1dd83e592d4"
+      }
     }
-  },
-  "pack": {
-    "url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/2.0.2/ness-relay-v2.0.2-linux-x86_64.zip",
-    "fileName": "ness-relay-v2.0.2-linux-x86_64.zip",
-    "sha256": "c417254f0008b22b809f4aba7b901396b94beee8449033653366c8f51db081ea"
-  },
+  ],
   "changelog": [
-
-    "NESS Relay v2.0.2 — prueba de actualizacion automatica en entorno de desarrollo",
-    "ZIP de despliegue con binario y script de instalacion",
-    "Validacion SHA-256 del paquete completo",
-    "Descarga desde bucket de pruebas en GCP",
-    "Base para ensayar el flujo manual y automatico del agente"
+    "NESS Relay v2.0.2 — Multi-arquitectura (x86_64 + aarch64)",
+    "Soporte para instalación guiada desde frontend UI",
+    "Distribución directa de binarios (sin ZIP)",
+    "Variables de entorno: NESS_TOKEN, NESS_TIME, NESS_SERVER_ID, NESS_RELAY_*",
+    "Auto-configuración de cron basada en NESS_TIME",
+    "Resolución de arquitectura automática (x86_64/aarch64)",
+    "Descarga desde GCP con validación SHA-256 para instalador y binario"
   ]
 }

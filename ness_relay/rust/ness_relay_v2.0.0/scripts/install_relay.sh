@@ -20,7 +20,8 @@
 # Modo silencioso:
 #   sudo ./install_relay.sh --silent --config-file connection.config --token TU_TOKEN --env 3
 #
-# IMPORTANTE: Este instalador requiere el binario 'ness-relay'
+# IMPORTANTE: Este instalador requiere el binario correspondiente a la
+#             arquitectura del host (`ness-relay-x86_64` o `ness-relay-aarch64`)
 #             en el mismo directorio (o en dist/).
 ###############################################################################
 
@@ -44,14 +45,132 @@ NC='\033[0m' # No Color
 SILENT_MODE=false
 FORCE_INSTALL=false
 VERIFY_SETUP_ONLY=false
+UPDATE_ONLY_MODE=false
 CONFIG_FILE=""
 API_TOKEN=""
 SERVER_ENV=3  # Por defecto usamos Public Cloud
+GUIDED_MODE=false
+CRON_INTERVAL=""
+GUIDED_VENDOR=""
+GUIDED_SNMP_VERSION=""
+GUIDED_DEVICE_IP=""
+GUIDED_DEVICE_PORT=""
+GUIDED_COMMUNITY=""
+GUIDED_V3_USER=""
+GUIDED_V3_AUTH_PROTOCOL=""
+GUIDED_V3_AUTH_PASSWORD=""
+GUIDED_V3_PRIV_PROTOCOL=""
+GUIDED_V3_PRIV_PASSWORD=""
+GUIDED_DESCRIPTION=""
+EXISTING_INSTALL_DIR="/opt/ness_relay"
+PRESERVED_CONFIG_SOURCE=""
+PRESERVED_SERVER_ID=""
+PRESERVED_API_TOKEN=""
+PRESERVED_INSTALL_DIR=""
+PRESERVED_DEVICES_FILE=""
+PRESERVED_OUTPUT_DIR=""
+PRESERVED_LOG_DIR=""
+
+RELAY_METADATA_URL_DEFAULT="https://storage.googleapis.com/agent-updates-lab/utilities/relay/latest.json"
+RELAY_METADATA_URL="${NESS_RELAY_METADATA_URL:-$RELAY_METADATA_URL_DEFAULT}"
+TEMP_ARTIFACT_DIR=""
+SOURCE_PACKAGE_DIR=""
+SOURCE_PACKAGE_HAS_LOCAL_BINARY=false
+SOURCE_PACKAGE_HAS_LOCAL_INSTALLER=false
+
+# Función para cargar variables de entorno previas en actualización
+load_existing_env_vars() {
+    local env_file="/etc/profile.d/ness_relay.sh"
+    if [[ -f "$env_file" ]]; then
+        log_message "PROGRESS" "Leyendo variables de entorno existentes desde $env_file..."
+        # Extraer valores de forma segura sin ejecutar el archivo
+        PRESERVED_SERVER_ID="$(grep -o 'NESS_SERVER_ID="[^"]*"' "$env_file" | cut -d'"' -f2)"
+        PRESERVED_API_TOKEN="$(grep -o 'NESS_API_TOKEN="[^"]*"' "$env_file" | cut -d'"' -f2)"
+        PRESERVED_INSTALL_DIR="$(grep -o 'NESS_INSTALL_DIR="[^"]*"' "$env_file" | cut -d'"' -f2)"
+        PRESERVED_DEVICES_FILE="$(grep -o 'NESS_DEVICES_FILE="[^"]*"' "$env_file" | cut -d'"' -f2)"
+        PRESERVED_OUTPUT_DIR="$(grep -o 'NESS_OUTPUT_DIR="[^"]*"' "$env_file" | cut -d'"' -f2)"
+        PRESERVED_LOG_DIR="$(grep -o 'NESS_LOG_DIR="[^"]*"' "$env_file" | cut -d'"' -f2)"
+        
+        # Si encontró variables, restituirlas a las variables de instalación actual
+        if [[ -n "$PRESERVED_SERVER_ID" ]]; then
+            SERVER_ENV="$PRESERVED_SERVER_ID"
+            log_message "SUCCESS" "Server ID recuperado: $SERVER_ENV"
+        fi
+        if [[ -n "$PRESERVED_API_TOKEN" ]]; then
+            API_TOKEN="$PRESERVED_API_TOKEN"
+            log_message "SUCCESS" "Token API recuperado"
+        fi
+    else
+        log_message "WARNING" "No se encontró configuración de entorno existente en $env_file"
+    fi
+}
+
+detect_source_package_dir() {
+    local script_dir="$1"
+    local binary_source="$2"
+
+    SOURCE_PACKAGE_DIR=""
+    SOURCE_PACKAGE_HAS_LOCAL_BINARY=false
+    SOURCE_PACKAGE_HAS_LOCAL_INSTALLER=false
+
+    if [[ -z "$script_dir" || -z "$binary_source" ]]; then
+        return
+    fi
+
+    if [[ -f "$script_dir/install_relay.sh" ]]; then
+        SOURCE_PACKAGE_HAS_LOCAL_INSTALLER=true
+    fi
+
+    if [[ "$binary_source" == "$script_dir"/* ]]; then
+        SOURCE_PACKAGE_HAS_LOCAL_BINARY=true
+    fi
+
+    if [[ "$SOURCE_PACKAGE_HAS_LOCAL_INSTALLER" == "true" && "$SOURCE_PACKAGE_HAS_LOCAL_BINARY" == "true" ]]; then
+        SOURCE_PACKAGE_DIR="$script_dir"
+    fi
+}
+
+cleanup_source_package_if_needed() {
+    local candidate_dir="$SOURCE_PACKAGE_DIR"
+
+    # Solo limpiar en instalación inicial (no en update) y con instalación completada.
+    if [[ "$UPDATE_ONLY_MODE" == "true" ]]; then
+        return
+    fi
+    if [[ "$INSTALL_STATUS" != "success" && "$INSTALL_STATUS" != "skipped" ]]; then
+        return
+    fi
+    if [[ -z "$candidate_dir" || ! -d "$candidate_dir" ]]; then
+        return
+    fi
+
+    # Guardas de seguridad para evitar borrar rutas críticas.
+    case "$candidate_dir" in
+        "/"|"/opt"|"/opt/ness_relay"|"/opt/ness_relay/"|"/opt/ness_relay"/*)
+            log_message "WARNING" "Limpieza omitida por seguridad (ruta protegida): $candidate_dir"
+            return
+            ;;
+    esac
+
+    # No borrar entornos de desarrollo/repositorio.
+    if [[ -f "$candidate_dir/Cargo.toml" || -d "$candidate_dir/src" || -d "$candidate_dir/.git" ]]; then
+        log_message "INFO" "Limpieza omitida: directorio detectado como entorno de desarrollo ($candidate_dir)"
+        return
+    fi
+
+    if rm -rf "$candidate_dir" 2>/dev/null; then
+        log_message "SUCCESS" "Carpeta temporal de instalación eliminada: $candidate_dir"
+    else
+        log_message "WARNING" "No se pudo eliminar la carpeta temporal de instalación: $candidate_dir"
+    fi
+}
+
 declare -A SELECTED_VENDORS
 declare -A DEVICE_CONFIGS
 
 # Nombre del ejecutable (binario estático Rust)
 EXEC_NAME="ness-relay"
+INSTALLED_BINARY_NAME=""
 
 # --- Funciones de Utilidad para UI Responsive ---
 get_term_width() {
@@ -85,6 +204,240 @@ center_text() {
     local padding=$(( (width - text_len) / 2 ))
     [[ $padding -lt 0 ]] && padding=0
     printf "%${padding}s%s\n" "" "$text"
+}
+
+cleanup_temp_artifacts() {
+    if [[ -n "$TEMP_ARTIFACT_DIR" && -d "$TEMP_ARTIFACT_DIR" ]]; then
+        rm -rf "$TEMP_ARTIFACT_DIR" 2>/dev/null || true
+    fi
+}
+trap cleanup_temp_artifacts EXIT
+
+download_file() {
+    local url="$1"
+    local output_file="$2"
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --retry 3 --connect-timeout 10 -o "$output_file" "$url"
+        return $?
+    fi
+
+    if command -v wget >/dev/null 2>&1; then
+        wget -qO "$output_file" "$url"
+        return $?
+    fi
+
+    return 1
+}
+
+verify_sha256_checksum() {
+    local file_path="$1"
+    local expected_sha="$2"
+    local calculated_sha=""
+
+    if command -v sha256sum >/dev/null 2>&1; then
+        calculated_sha="$(sha256sum "$file_path" | awk '{print $1}')"
+    elif command -v shasum >/dev/null 2>&1; then
+        calculated_sha="$(shasum -a 256 "$file_path" | awk '{print $1}')"
+    else
+        return 2
+    fi
+
+    [[ "$calculated_sha" == "$expected_sha" ]]
+}
+
+extract_latest_version() {
+    local metadata_file="$1"
+    sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$metadata_file" | head -n 1
+}
+
+extract_variant_download_info() {
+    local metadata_file="$1"
+    local target_arch="$2"
+
+    if command -v jq >/dev/null 2>&1; then
+        jq -r --arg arch "$target_arch" '
+            .variants[]
+            | select(.arch == $arch and .platform == "linux")
+            | [(.binary.url // .pack.url), (.binary.sha256 // .pack.sha256)]
+            | @tsv
+        ' "$metadata_file" | head -n 1 | awk -F'\t' 'NF>=2 {print $1"\n"$2}'
+        return 0
+    fi
+    # Fallback: use python3 if available (more portable than complex awk parsing)
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - "$metadata_file" "$target_arch" <<'PY'
+import sys, json
+fn = sys.argv[1]
+arch = sys.argv[2]
+try:
+    with open(fn, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+except Exception:
+    sys.exit(1)
+
+variants = data.get('variants', [])
+for v in variants:
+    if str(v.get('arch')) == arch and str(v.get('platform')) == 'linux':
+        # prefer binary.url, fallback to pack.url
+        binobj = v.get('binary') or v.get('pack') or {}
+        url = binobj.get('url') or v.get('url') or ''
+        sha = binobj.get('sha256') or v.get('sha256') or ''
+        if url:
+            print(url)
+            print(sha)
+            sys.exit(0)
+sys.exit(2)
+PY
+        return $?
+    fi
+
+    # Last resort: simple awk that extracts first url/sha after matching arch
+    awk -v arch="$target_arch" '
+        BEGIN { capture=0; url=""; sha="" }
+        /"arch"[[:space:]]*:[[:space:]]*"/ {
+            if ($0 ~ arch) { capture=1 }
+        }
+        capture && url == "" && /"url"[[:space:]]*:/ { if (match($0, /"url"[[:space:]]*:[[:space:]]*"([^"]+)"/, m)) url=m[1] }
+        capture && sha == "" && /"sha256"[[:space:]]*:/ { if (match($0, /"sha256"[[:space:]]*:[[:space:]]*"([^"]+)"/, m)) sha=m[1] }
+        capture && url != "" && sha != "" { print url; print sha; exit 0 }
+    ' "$metadata_file"
+}
+
+normalize_guided_vendor() {
+    local raw_vendor="$1"
+    local normalized="${raw_vendor,,}"
+    normalized="${normalized//[[:space:]]/}"
+
+    case "$normalized" in
+        windows|win)
+            echo "windows"
+            ;;
+        linux)
+            echo "linux"
+            ;;
+        cisco)
+            echo "cisco"
+            ;;
+        fortinet)
+            echo "fortinet"
+            ;;
+        pfsense|pfsensefw)
+            echo "pfsense"
+            ;;
+        mikrotik|routeros)
+            echo "mikrotik"
+            ;;
+        mikrotik_fw|mikrotikfw|mikrotik-firewall)
+            echo "mikrotik_fw"
+            ;;
+        ubnt|ubiquiti)
+            echo "ubnt"
+            ;;
+        c_n|cambium|cambiumnetworks)
+            echo "c_n"
+            ;;
+        *)
+            echo "linux"
+            ;;
+    esac
+}
+
+setup_guided_configuration_from_env() {
+    local key_prefix config_key
+
+    GUIDED_VENDOR="$(normalize_guided_vendor "${NESS_RELAY_VENDOR:-${NESS_RELAY_DEVICE_VENDOR:-linux}}")"
+    GUIDED_SNMP_VERSION="${NESS_RELAY_SNMP_VERSION:-2c}"
+    GUIDED_DEVICE_IP="${NESS_RELAY_DEVICE_IP:-}"
+    GUIDED_DEVICE_PORT="${NESS_RELAY_SNMP_PORT:-161}"
+    GUIDED_COMMUNITY="${NESS_RELAY_COMMUNITY:-public}"
+    GUIDED_V3_USER="${NESS_RELAY_SNMPV3_USER:-}"
+    GUIDED_V3_AUTH_PROTOCOL="${NESS_RELAY_SNMPV3_AUTH_PROTOCOL:-SHA}"
+    GUIDED_V3_AUTH_PASSWORD="${NESS_RELAY_SNMPV3_AUTH_PASSWORD:-}"
+    GUIDED_V3_PRIV_PROTOCOL="${NESS_RELAY_SNMPV3_PRIV_PROTOCOL:-AES128}"
+    GUIDED_V3_PRIV_PASSWORD="${NESS_RELAY_SNMPV3_PRIV_PASSWORD:-}"
+    GUIDED_DESCRIPTION="${NESS_RELAY_DEVICE_DESCRIPTION:-Instalación guiada}"
+
+    if [[ -z "$GUIDED_DEVICE_IP" ]]; then
+        log_message "ERROR" "Modo guiado: falta NESS_RELAY_DEVICE_IP"
+        exit 1
+    fi
+
+    if [[ "$GUIDED_SNMP_VERSION" == "3" && -z "$GUIDED_V3_USER" ]]; then
+        log_message "ERROR" "Modo guiado: para SNMPv3 debe enviar NESS_RELAY_SNMPV3_USER"
+        exit 1
+    fi
+
+    key_prefix="${GUIDED_VENDOR}"
+    config_key="${key_prefix}_1"
+
+    SELECTED_VENDORS["$key_prefix"]="true"
+    DEVICE_CONFIGS["${key_prefix}_count"]="1"
+    DEVICE_CONFIGS["${config_key}_ip"]="$GUIDED_DEVICE_IP"
+    DEVICE_CONFIGS["${config_key}_port"]="$GUIDED_DEVICE_PORT"
+    DEVICE_CONFIGS["${config_key}_description"]="$GUIDED_DESCRIPTION"
+    DEVICE_CONFIGS["${config_key}_vendor"]="$GUIDED_VENDOR"
+    DEVICE_CONFIGS["${config_key}_snmp_version"]="$GUIDED_SNMP_VERSION"
+
+    if [[ "$GUIDED_SNMP_VERSION" == "1" || "$GUIDED_SNMP_VERSION" == "2c" ]]; then
+        DEVICE_CONFIGS["${config_key}_community"]="$GUIDED_COMMUNITY"
+    else
+        DEVICE_CONFIGS["${config_key}_v3_user"]="$GUIDED_V3_USER"
+        DEVICE_CONFIGS["${config_key}_v3_auth_protocol"]="$GUIDED_V3_AUTH_PROTOCOL"
+        DEVICE_CONFIGS["${config_key}_v3_auth_password"]="$GUIDED_V3_AUTH_PASSWORD"
+        DEVICE_CONFIGS["${config_key}_v3_priv_protocol"]="$GUIDED_V3_PRIV_PROTOCOL"
+        DEVICE_CONFIGS["${config_key}_v3_priv_password"]="$GUIDED_V3_PRIV_PASSWORD"
+    fi
+}
+
+download_binary_from_metadata() {
+    local host_arch="$1"
+    local metadata_file metadata_version variant_url variant_sha
+
+    TEMP_ARTIFACT_DIR="$(mktemp -d /tmp/ness_relay_guided_XXXXXX)"
+    metadata_file="$TEMP_ARTIFACT_DIR/latest.json"
+
+    log_message "PROGRESS" "Descargando metadata de release: $RELAY_METADATA_URL"
+    if ! download_file "$RELAY_METADATA_URL" "$metadata_file"; then
+        log_message "ERROR" "No se pudo descargar latest.json desde $RELAY_METADATA_URL"
+        return 1
+    fi
+
+    metadata_version="$(extract_latest_version "$metadata_file")"
+    mapfile -t variant_info < <(extract_variant_download_info "$metadata_file" "$host_arch")
+
+    if [[ ${#variant_info[@]} -lt 2 ]]; then
+        log_message "ERROR" "No existe variante para arquitectura '$host_arch' en latest.json"
+        log_message "ERROR" "Contenido de latest.json (primeras 200 líneas):"
+        sed -n '1,200p' "$metadata_file" | sed 's/^/    /'
+        return 1
+    fi
+
+    variant_url="${variant_info[0]}"
+    variant_sha="${variant_info[1]}"
+
+    BINARY_NAME_SELECTED="${EXEC_NAME}-${host_arch}"
+    BINARY_SOURCE="$TEMP_ARTIFACT_DIR/$BINARY_NAME_SELECTED"
+
+    log_message "PROGRESS" "Descargando binario '$BINARY_NAME_SELECTED'${metadata_version:+ (v$metadata_version)}"
+    if ! download_file "$variant_url" "$BINARY_SOURCE"; then
+        log_message "ERROR" "Fallo al descargar binario desde: $variant_url"
+        return 1
+    fi
+
+    if [[ -n "$variant_sha" ]]; then
+        if verify_sha256_checksum "$BINARY_SOURCE" "$variant_sha"; then
+            log_message "SUCCESS" "Checksum SHA-256 del binario verificado correctamente"
+        else
+            log_message "ERROR" "Checksum SHA-256 inválido para binario descargado"
+            return 1
+        fi
+    else
+        log_message "WARNING" "La variante descargada no incluye SHA-256 en latest.json"
+    fi
+
+    chmod +x "$BINARY_SOURCE" 2>/dev/null || true
+    return 0
 }
 
 # Normaliza protocolos SNMPv3 a valores canónicos que entiende el motor Rust.
@@ -809,6 +1162,17 @@ load_config_file() {
 generate_config_file() {
     local config_file="$INSTALL_DIR/configs/connection.config"
 
+    # En actualización, preservar exactamente el archivo previo si existe.
+    if [[ "$UPDATE_ONLY_MODE" == "true" && -n "$PRESERVED_CONFIG_SOURCE" && -f "$PRESERVED_CONFIG_SOURCE" ]]; then
+        if [[ "$PRESERVED_CONFIG_SOURCE" == "$config_file" ]]; then
+            log_message "SUCCESS" "Configuración preservada sin cambios en: $config_file"
+        else
+            cp "$PRESERVED_CONFIG_SOURCE" "$config_file"
+            log_message "SUCCESS" "Configuración previa restaurada en: $config_file"
+        fi
+        return
+    fi
+
     {
         echo "# ═══════════════════════════════════════════════════════════"
         echo "# NESS RELAY — Configuración de Dispositivos"
@@ -906,6 +1270,11 @@ while [[ $# -gt 0 ]]; do
             VERIFY_SETUP_ONLY=true
             shift
             ;;
+        --update-only)
+            UPDATE_ONLY_MODE=true
+            SILENT_MODE=true
+            shift
+            ;;
         --help)
             echo "Uso: sudo ./install_relay.sh [opciones]"
             echo ""
@@ -916,6 +1285,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --token TOKEN          Token de API de NESS HQ"
             echo "  --env ENV_ID           ID del servidor (1=On-premise, 2=Testing, 3=Cloud)"
             echo "  --verify-setup         Ejecutar solo Smart Tester y salir"
+            echo "  --update-only          Modo actualización: solo reemplaza binarios (sin reconfiguración)"
             echo "  --help                 Mostrar esta ayuda"
             echo ""
             echo "Modo interactivo (recomendado):"
@@ -923,6 +1293,9 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Modo silencioso:"
             echo "  sudo ./install_relay.sh --silent --config-file connection.config --token TU_TOKEN --env 3"
+            echo ""
+            echo "Modo guiado (frontend, sin preguntas):"
+            echo "  sudo NESS_GUIDED_INSTALL=true NESS_TOKEN=... NESS_SERVER_ID=3 NESS_RELAY_DEVICE_IP=10.0.0.5 NESS_RELAY_SNMP_VERSION=2c ./install_relay.sh"
             echo ""
             echo "Ejemplo de archivo de configuración:"
             echo "  pfsense_count=1"
@@ -941,6 +1314,42 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LEER VARIABLES DE ENTORNO (GUIDED INSTALLATION MODE)
+# ═══════════════════════════════════════════════════════════════════════════
+# Si no se pasó --token, buscar NESS_TOKEN en el entorno (frontend mode)
+if [[ -z "$API_TOKEN" && -n "$NESS_TOKEN" ]]; then
+    API_TOKEN="$NESS_TOKEN"
+    log_message "INFO" "Token obtenido de variable de entorno NESS_TOKEN"
+fi
+
+# Si no se pasó --env, buscar NESS_SERVER_ID en el entorno (frontend mode)
+if [[ -n "$NESS_SERVER_ID" ]]; then
+    case "$NESS_SERVER_ID" in
+        1|2|3)
+            SERVER_ENV="$NESS_SERVER_ID"
+            log_message "INFO" "Servidor obtenido de variable de entorno NESS_SERVER_ID=$NESS_SERVER_ID"
+            ;;
+        *)
+            log_message "WARNING" "NESS_SERVER_ID inválido ($NESS_SERVER_ID). Se mantiene valor actual: $SERVER_ENV"
+            ;;
+    esac
+fi
+
+# Capturar NESS_TIME si está disponible (para auto-configurar cron, en minutos)
+if [[ -n "$NESS_TIME" ]]; then
+    CRON_INTERVAL="$NESS_TIME"
+    log_message "INFO" "Intervalo de ejecución solicitado: $NESS_TIME minutos"
+fi
+
+# Activar modo guiado automáticamente cuando llegan variables del frontend
+if [[ "${NESS_GUIDED_INSTALL:-}" == "true" ]] || [[ -n "$NESS_RELAY_DEVICE_IP" ]]; then
+    GUIDED_MODE=true
+    SILENT_MODE=true
+    log_message "INFO" "Modo guiado detectado por variables de entorno"
+    setup_guided_configuration_from_env
+fi
 
 ###############################################################################
 # INICIO DE LA INSTALACIÓN
@@ -1008,20 +1417,28 @@ for candidate in "${BINARY_CANDIDATES[@]}"; do
 done
 
 if [[ -z "$BINARY_SOURCE" ]]; then
-    log_message "ERROR" "No se encuentra un binario compatible en este directorio ni en dist/"
-    echo ""
-    echo -e "${YELLOW}${BOLD}Asegúrese de:${NC}"
-    echo -e "  ${WHITE}1.${NC} Haber compilado el agente con ${CYAN}build_relay.sh${NC}"
-    echo -e "  ${WHITE}2.${NC} El binario compilado debe estar en ${CYAN}dist/${EXEC_NAME}${NC}, ${CYAN}dist/${EXEC_NAME}-x86_64${NC}, ${CYAN}dist/${EXEC_NAME}-aarch64${NC} o en este directorio"
-    echo ""
-    echo -e "${YELLOW}${BOLD}Ejemplo de compilación:${NC}"
-    echo -e "  ${WHITE}./build_relay.sh --arch x86_64 --release${NC}"
-    echo -e "  ${WHITE}./build_relay.sh --arch aarch64 --release${NC}"
-    echo ""
-    exit 1
+    log_message "WARNING" "No se encontró binario local. Intentando descarga guiada desde metadata..."
+
+    if [[ -z "$HOST_ARCH_SUFFIX" ]]; then
+        log_message "ERROR" "Arquitectura no soportada para descarga automática: $HOST_ARCH_RAW"
+        exit 1
+    fi
+
+    if ! download_binary_from_metadata "$HOST_ARCH_SUFFIX"; then
+        log_message "ERROR" "No se pudo obtener un binario compatible automáticamente"
+        echo ""
+        echo -e "${YELLOW}${BOLD}Asegúrese de:${NC}"
+        echo -e "  ${WHITE}1.${NC} Haber compilado el agente con ${CYAN}build_relay.sh${NC}"
+        echo -e "  ${WHITE}2.${NC} El binario compilado debe estar en ${CYAN}dist/${EXEC_NAME}${NC}, ${CYAN}dist/${EXEC_NAME}-x86_64${NC}, ${CYAN}dist/${EXEC_NAME}-aarch64${NC} o en este directorio"
+        echo -e "  ${WHITE}3.${NC} O publicar correctamente ${CYAN}latest.json${NC} y binarios en el bucket"
+        echo ""
+        exit 1
+    fi
 fi
 
 log_message "SUCCESS" "Ejecutable '${BINARY_NAME_SELECTED}' encontrado: ${BINARY_SOURCE}"
+INSTALLED_BINARY_NAME="$BINARY_NAME_SELECTED"
+detect_source_package_dir "$SCRIPT_DIR" "$BINARY_SOURCE"
 echo ""
 
 ###############################################################################
@@ -1237,8 +1654,20 @@ if [[ "$SILENT_MODE" != "true" && -f "$AUTOCOMPLETE_FILE" ]]; then
 fi
 
 # Selección de fabricantes (flujo normal, solo si no se usó autocompletado)
-if [[ "$AUTOCOMPLETE_USED" == "true" ]]; then
+if [[ "$UPDATE_ONLY_MODE" == "true" ]]; then
+    log_message "INFO" "Modo actualización (--update-only): usando configuración existente"
+    local_existing_config="$EXISTING_INSTALL_DIR/configs/connection.config"
+    if [[ -f "$local_existing_config" ]]; then
+        log_message "PROGRESS" "Recargando connection.config existente antes de regenerarlo..."
+        PRESERVED_CONFIG_SOURCE="$local_existing_config"
+        load_config_file "$local_existing_config"
+    else
+        log_message "WARNING" "No se encontró connection.config previo en $local_existing_config"
+    fi
+elif [[ "$AUTOCOMPLETE_USED" == "true" ]]; then
     log_message "INFO" "Configuración completada vía autocompletado del Smart Tester"
+elif [[ "$GUIDED_MODE" == "true" ]]; then
+    log_message "INFO" "Configuración completada vía variables de instalación guiada"
 elif [[ "$SILENT_MODE" == "true" && -n "$CONFIG_FILE" ]]; then
     load_config_file "$CONFIG_FILE"
 elif [[ "$SILENT_MODE" != "true" ]]; then
@@ -1269,7 +1698,7 @@ elif [[ "$SILENT_MODE" != "true" ]]; then
     echo ""
     interactive_vendor_selection
 else
-    log_message "ERROR" "En modo silencioso debe especificar --config-file"
+    log_message "ERROR" "En modo silencioso debe especificar --config-file o usar variables de instalación guiada"
     exit 1
 fi
 
@@ -1296,12 +1725,55 @@ case "$SERVER_ENV" in
         ;;
 esac
 
+# ═══════════════════════════════════════════════════════════════════════════
+# AUTO-CONFIGURAR CRON DESDE NESS_TIME
+# ═══════════════════════════════════════════════════════════════════════════
+# Si NESS_TIME se proporcionó como variable de entorno, generar cron expression
+if [[ -n "$CRON_INTERVAL" && "$CRON_INTERVAL" =~ ^[0-9]+$ ]]; then
+    if (( CRON_INTERVAL <= 10 )); then
+        FINAL_CRON="*/$CRON_INTERVAL * * * *"
+    elif (( CRON_INTERVAL <= 60 )); then
+        local_interval=$(( (CRON_INTERVAL + 4) / 5 ))
+        FINAL_CRON="*/$local_interval * * * *"
+    else
+        local_hours=$(( (CRON_INTERVAL + 59) / 60 ))
+        FINAL_CRON="0 */$local_hours * * *"
+    fi
+    CRON_AUTO_CONFIGURED="true"
+    log_message "SUCCESS" "Cron configurado automáticamente: $FINAL_CRON"
+else
+    CRON_AUTO_CONFIGURED="false"
+    FINAL_CRON="0 3 * * *"
+fi
+
+
+# En modo update-only, leer variables existentes para preservar el entorno previo
+if [[ "$UPDATE_ONLY_MODE" == "true" ]]; then
+    load_existing_env_vars
+    if [[ -f "/etc/profile.d/ness_relay.sh" ]]; then
+        log_message "PROGRESS" "Leyendo configuración existente de /etc/profile.d/ness_relay.sh..."
+        source /etc/profile.d/ness_relay.sh
+        
+        # Cargar token y server ID del archivo de entorno
+        if [[ -n "$NESS_API_TOKEN" ]]; then
+            API_TOKEN="$NESS_API_TOKEN"
+            log_message "SUCCESS" "Token cargado desde configuración existente"
+        fi
+        
+        if [[ -n "$NESS_SERVER_ID" ]]; then
+            SERVER_ENV="$NESS_SERVER_ID"
+            log_message "SUCCESS" "Server ID cargado desde configuración existente: $SERVER_ENV"
+        fi
+    else
+        log_message "WARNING" "No se encontró configuración existente en /etc/profile.d/ness_relay.sh"
+    fi
+fi
+
 # Verificar token en modo silencioso
 if [[ -z "$API_TOKEN" ]]; then
     log_message "ERROR" "No se proporcionó un token de API. Use --token YOUR_TOKEN"
     exit 1
 fi
-
 # Mostrar resumen de configuración
 echo ""
 print_box "RESUMEN DE CONFIGURACIÓN" "${WHITE}${BOLD}"
@@ -1332,17 +1804,43 @@ fi
 ###############################################################################
 INSTALL_DIR="/opt/ness_relay"
 if [[ -d "$INSTALL_DIR" && "$FORCE_INSTALL" != "true" ]]; then
+    # En modo actualización, salta menú y va directo a actualizar binarios
+    if [[ "$UPDATE_ONLY_MODE" == "true" ]]; then
+        log_message "INFO" "Modo actualización (--update-only): actualizando binarios existentes"
+        
+        BACKUP_DATE=$(date '+%Y%m%d_%H%M%S')
+        BACKUP_DIR="/opt/ness_relay_backup_${BACKUP_DATE}"
+        log_message "PROGRESS" "Creando backup de binarios actuales..."
+        mkdir -p "$BACKUP_DIR"
+        
+        # Backup solo de ejecutables, no de configuración
+        for existing_exec in "ness-relay" "ness-relay-x86_64" "ness-relay-aarch64"; do
+            [[ -f "$INSTALL_DIR/executables/$existing_exec" ]] && cp "$INSTALL_DIR/executables/$existing_exec" "$BACKUP_DIR/" 2>/dev/null
+        done
+        [[ -f "$INSTALL_DIR/executables/install_relay.sh" ]] && cp "$INSTALL_DIR/executables/install_relay.sh" "$BACKUP_DIR/" 2>/dev/null
+        log_message "SUCCESS" "Backup de binarios creado: $BACKUP_DIR"
+        
+        # En modo update-only, procede directamente a actualizar
+        reinstall_option="update_only"
+    else
     echo ""
     echo -e "${YELLOW}${BOLD}⚠️  INSTALACIÓN EXISTENTE DETECTADA${NC}"
     echo -e "${WHITE}El directorio $INSTALL_DIR ya existe.${NC}"
     echo ""
-    echo -e "${WHITE}${BOLD}Selecciona una opción:${NC}"
-    echo -e "  ${WHITE}1)${NC} ${GREEN}Reinstalar completamente${NC} ${DIM}(elimina todo y crea una instalación nueva)${NC}"
-    echo -e "  ${WHITE}2)${NC} ${YELLOW}Actualizar configuración${NC} ${DIM}(mantiene estructura, actualiza configuraciones)${NC}"
-    echo -e "  ${WHITE}3)${NC} ${RED}Cancelar instalación${NC}"
-    echo ""
-    echo -ne "${BOLD}Selecciona una opción (1-3): ${NC}"
-    read reinstall_option
+
+    if [[ "$SILENT_MODE" == "true" ]]; then
+        reinstall_option="2"
+        log_message "INFO" "Modo silencioso: actualización de configuración seleccionada automáticamente"
+    else
+        echo -e "${WHITE}${BOLD}Selecciona una opción:${NC}"
+        echo -e "  ${WHITE}1)${NC} ${GREEN}Reinstalar completamente${NC} ${DIM}(elimina todo y crea una instalación nueva)${NC}"
+        echo -e "  ${WHITE}2)${NC} ${YELLOW}Actualizar configuración${NC} ${DIM}(mantiene estructura, actualiza configuraciones)${NC}"
+        echo -e "  ${WHITE}3)${NC} ${RED}Cancelar instalación${NC}"
+        echo ""
+        echo -ne "${BOLD}Selecciona una opción (1-3): ${NC}"
+        read reinstall_option
+    fi
+    fi
 
     case "$reinstall_option" in
         1)
@@ -1370,7 +1868,7 @@ if [[ -d "$INSTALL_DIR" && "$FORCE_INSTALL" != "true" ]]; then
             log_message "SUCCESS" "Instalación anterior eliminada"
             ;;
 
-        2)
+        2|update_only)
             log_message "WARNING" "Actualización de configuración seleccionada"
 
             BACKUP_DATE=$(date '+%Y%m%d_%H%M%S')
@@ -1436,24 +1934,44 @@ fi
 # INSTALAR BINARIO
 ###############################################################################
 log_message "PROGRESS" "Copiando ejecutable..."
-cp "${BINARY_SOURCE}" "$INSTALL_DIR/executables/$EXEC_NAME"
-chmod +x "$INSTALL_DIR/executables/$EXEC_NAME"
-log_message "SUCCESS" "Ejecutable instalado en: $INSTALL_DIR/executables/$EXEC_NAME"
+cp "${BINARY_SOURCE}" "$INSTALL_DIR/executables/$INSTALLED_BINARY_NAME"
+chmod +x "$INSTALL_DIR/executables/$INSTALLED_BINARY_NAME"
+log_message "SUCCESS" "Ejecutable instalado en: $INSTALL_DIR/executables/$INSTALLED_BINARY_NAME"
+
+# Actualizar script de instalación también
+SCRIPT_SOURCE="${BASH_SOURCE[0]}"
+if [[ -f "$SCRIPT_SOURCE" && "$SCRIPT_SOURCE" != "$INSTALL_DIR/executables/install_relay.sh" ]]; then
+    log_message "PROGRESS" "Actualizando script de instalación..."
+    cp "$SCRIPT_SOURCE" "$INSTALL_DIR/executables/install_relay.sh"
+    chmod +x "$INSTALL_DIR/executables/install_relay.sh"
+    log_message "SUCCESS" "Script de instalación actualizado en: $INSTALL_DIR/executables/install_relay.sh"
+fi
 
 ###############################################################################
 # CONFIGURAR VARIABLES DE ENTORNO
 ###############################################################################
 ENV_FILE="/etc/profile.d/ness_relay.sh"
+
+# En modo update-only, usar valores preservados si están disponibles
+if [[ "$UPDATE_ONLY_MODE" == "true" ]]; then
+    [[ -n "$PRESERVED_SERVER_ID" ]] && SERVER_ENV="$PRESERVED_SERVER_ID"
+    [[ -n "$PRESERVED_API_TOKEN" ]] && API_TOKEN="$PRESERVED_API_TOKEN"
+    [[ -n "$PRESERVED_INSTALL_DIR" ]] && INSTALL_DIR="$PRESERVED_INSTALL_DIR"
+fi
+
 log_message "PROGRESS" "Configurando variables de entorno..."
 {
     echo "# ═══════════════════════════════════════════════════════════"
     echo "# NESS RELAY — Variables de Entorno (Rust Edition)"
     echo "# Generado automáticamente el $(date)"
+    if [[ "$UPDATE_ONLY_MODE" == "true" ]]; then
+        echo "# MODO ACTUALIZACIÓN: Variables preservadas de instalación anterior"
+    fi
     echo "# NOTA: SERVER_ID es un identificador interno (1=On-premise, 2=Testing, 3=Cloud)"
     echo "# Las URLs reales están protegidas dentro del ejecutable compilado"
     echo "# ═══════════════════════════════════════════════════════════"
     echo ""
-    echo "export NESS_SERVER_ID=\"$SERVER_ID\""
+    echo "export NESS_SERVER_ID=\"$SERVER_ENV\""
     echo "export NESS_API_TOKEN=\"$API_TOKEN\""
     echo "export NESS_INSTALL_DIR=\"$INSTALL_DIR\""
     echo "export NESS_DEVICES_FILE=\"$INSTALL_DIR/configs/connection.config\""
@@ -1474,13 +1992,13 @@ generate_config_file
 ###############################################################################
 log_message "PROGRESS" "Ejecutando Smart Tester Deep Validation sobre connection.config..."
 if [[ "$SILENT_MODE" == "true" ]]; then
-    "$INSTALL_DIR/executables/$EXEC_NAME" \
+    "$INSTALL_DIR/executables/$INSTALLED_BINARY_NAME" \
         --verify-setup \
         --verify-auto-fix \
         --verify-assume-yes \
         --config "$INSTALL_DIR/configs/connection.config" || true
 else
-    "$INSTALL_DIR/executables/$EXEC_NAME" \
+    "$INSTALL_DIR/executables/$INSTALLED_BINARY_NAME" \
         --verify-setup \
         --verify-auto-fix \
         --config "$INSTALL_DIR/configs/connection.config" || true
@@ -1590,7 +2108,7 @@ log_message "PROGRESS" "Creando script de ejecución..."
     echo "    # Terminal interactivo: mostrar salida en tiempo real"
     echo "    echo -e \"\${YELLOW}Ejecutando NESS Relay...\${NC}\""
     echo "    echo \"\""
-    echo "    ./executables/$EXEC_NAME --config $INSTALL_DIR/configs/connection.config"
+    echo "    ./executables/$INSTALLED_BINARY_NAME --config $INSTALL_DIR/configs/connection.config"
     echo "    EXIT_CODE=\$?"
     echo "    echo \"\""
     echo "    if [ \$EXIT_CODE -eq 0 ]; then"
@@ -1606,7 +2124,7 @@ log_message "PROGRESS" "Creando script de ejecución..."
     echo "    exit \$EXIT_CODE"
     echo "else"
     echo "    # Ejecución desde cron: modo silencioso (solo escribe al log interno)"
-    echo "    ./executables/$EXEC_NAME --silent --config $INSTALL_DIR/configs/connection.config"
+    echo "    ./executables/$INSTALLED_BINARY_NAME --silent --config $INSTALL_DIR/configs/connection.config"
     echo "    EXIT_CODE=\$?"
     echo "    if [ \$EXIT_CODE -ne 0 ]; then"
     echo "        echo \"[\$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Relay falló con código \$EXIT_CODE\" >> $INSTALL_DIR/logs/ness_relay.log"
@@ -1621,6 +2139,9 @@ log_message "SUCCESS" "Script de ejecución creado: $RUN_SCRIPT"
 ###############################################################################
 # CONFIGURAR CRON (OPCIONES DE PROGRAMACIÓN INTERACTIVAS)
 ###############################################################################
+if [[ "$UPDATE_ONLY_MODE" == "true" ]]; then
+    log_message "INFO" "Modo actualización: manteniendo configuración de cron existente"
+else
 log_message "PROGRESS" "Configurando tarea programada (cron)..."
 
 # Verificar/instalar cron según la distro
@@ -1641,59 +2162,89 @@ if ! command -v crontab &>/dev/null; then
     fi
 fi
 
-# Preguntar al administrador por la política de scheduling
-echo ""
-print_box "PROGRAMACIÓN DE ACTUALIZACIONES" "${WHITE}${BOLD}"
-echo "Elija la frecuencia con la que el agente verificará actualizaciones (recomendado: cada 12 o 24 horas)."
-echo "  1) Cada 12 horas"
-echo "  2) Cada 24 horas (hora fija)"
-echo "  3) Semanal (día y hora)"
-echo "  4) Mantener cada 5 minutos (por defecto / pruebas)"
-echo ""
-while true; do
-    read -p "Seleccione una opción [1-4] (default 2): " schedule_opt
-    schedule_opt=${schedule_opt:-2}
-    case "$schedule_opt" in
-        1)
-            CRON_EXPR="0 */12 * * *"
-            SCHEDULE_LABEL="cada 12 horas"
-            break
-            ;;
-        2)
-            read -p "Hora del día (0-23, default 3): " hour_of_day
-            hour_of_day=${hour_of_day:-3}
-            CRON_EXPR="0 ${hour_of_day} * * *"
-            SCHEDULE_LABEL="cada 24 horas a las ${hour_of_day}:00"
-            break
-            ;;
-        3)
-            echo "Días de la semana: 0=Domingo ... 6=Sábado"
-            read -p "Día de la semana (0-6, default 1=Lunes): " dow
-            dow=${dow:-1}
-            read -p "Hora del día (0-23, default 3): " hour_of_day
-            hour_of_day=${hour_of_day:-3}
-            CRON_EXPR="0 ${hour_of_day} * * ${dow}"
-            SCHEDULE_LABEL="semanal (día ${dow} a las ${hour_of_day}:00)"
-            break
-            ;;
-        4)
-            CRON_EXPR="*/5 * * * *"
-            SCHEDULE_LABEL="cada 5 minutos"
-            break
-            ;;
-        *)
-            echo "Opción no válida. Elija 1, 2, 3 o 4." ;;
-    esac
-done
+# Definir programación: interactiva para modo normal, automática para modo silencioso/guiado.
+if [[ "$SILENT_MODE" == "true" ]]; then
+    if [[ "$CRON_AUTO_CONFIGURED" == "true" && -n "$FINAL_CRON" ]]; then
+        CRON_EXPR="$FINAL_CRON"
+        SCHEDULE_LABEL="automática desde NESS_TIME ($FINAL_CRON)"
+    else
+        CRON_EXPR="*/5 * * * *"
+        SCHEDULE_LABEL="cada 5 minutos (default silencioso)"
+    fi
+else
+    echo ""
+    print_box "PROGRAMACIÓN DE ACTUALIZACIONES" "${WHITE}${BOLD}"
+    echo "Elija la frecuencia con la que el agente verificará actualizaciones (recomendado: cada 12 o 24 horas)."
+    echo "  1) Cada 12 horas"
+    echo "  2) Cada 24 horas (hora fija)"
+    echo "  3) Semanal (día y hora)"
+    echo "  4) Mantener cada 5 minutos (por defecto / pruebas)"
+    echo ""
+    while true; do
+        read -p "Seleccione una opción [1-4] (default 2): " schedule_opt
+        schedule_opt=${schedule_opt:-2}
+        case "$schedule_opt" in
+            1)
+                CRON_EXPR="0 */12 * * *"
+                SCHEDULE_LABEL="cada 12 horas"
+                break
+                ;;
+            2)
+                read -p "Hora del día (0-23, default 3): " hour_of_day
+                hour_of_day=${hour_of_day:-3}
+                if [[ ! "$hour_of_day" =~ ^([0-9]|1[0-9]|2[0-3])$ ]]; then
+                    echo "Hora inválida. Debe estar entre 0 y 23."
+                    continue
+                fi
+                CRON_EXPR="0 ${hour_of_day} * * *"
+                SCHEDULE_LABEL="cada 24 horas a las ${hour_of_day}:00"
+                break
+                ;;
+            3)
+                echo "Días de la semana: 0=Domingo ... 6=Sábado"
+                read -p "Día de la semana (0-6, default 1=Lunes): " dow
+                dow=${dow:-1}
+                if [[ ! "$dow" =~ ^[0-6]$ ]]; then
+                    echo "Día inválido. Debe estar entre 0 y 6."
+                    continue
+                fi
+                read -p "Hora del día (0-23, default 3): " hour_of_day
+                hour_of_day=${hour_of_day:-3}
+                if [[ ! "$hour_of_day" =~ ^([0-9]|1[0-9]|2[0-3])$ ]]; then
+                    echo "Hora inválida. Debe estar entre 0 y 23."
+                    continue
+                fi
+                CRON_EXPR="0 ${hour_of_day} * * ${dow}"
+                SCHEDULE_LABEL="semanal (día ${dow} a las ${hour_of_day}:00)"
+                break
+                ;;
+            4)
+                CRON_EXPR="*/5 * * * *"
+                SCHEDULE_LABEL="cada 5 minutos"
+                break
+                ;;
+            *)
+                echo "Opción no válida. Elija 1, 2, 3 o 4." ;;
+        esac
+    done
+fi
 
 # Eliminar entradas existentes del relay y añadir la nueva según la expresión
-(crontab -l 2>/dev/null | grep -v "$RUN_SCRIPT" | grep -v "ness.relay" | grep -v "ness_relay") | crontab -
-(crontab -l 2>/dev/null; echo "$CRON_EXPR $RUN_SCRIPT") | crontab -
-log_message "SUCCESS" "Tarea programada configurada ($SCHEDULE_LABEL)"
+EXISTING_CRON="$(crontab -l 2>/dev/null | grep -v "$RUN_SCRIPT" | grep -v "ness.relay" | grep -v "ness_relay" || true)"
+if printf "%s\n%s %s\n" "$EXISTING_CRON" "$CRON_EXPR" "$RUN_SCRIPT" | sed '/^[[:space:]]*$/d' | crontab -; then
+    log_message "SUCCESS" "Tarea programada configurada ($SCHEDULE_LABEL)"
+else
+    log_message "ERROR" "No se pudo registrar la tarea en crontab"
+    exit 1
+fi
+fi
 
 ###############################################################################
 # PRUEBA OPCIONAL
 ###############################################################################
+# PRUEBA OPCIONAL
+###############################################################################
+if [[ "$UPDATE_ONLY_MODE" != "true" ]]; then
 echo ""
 print_box "PRUEBA DE CONFIGURACIÓN" "${CYAN}${BOLD}"
 echo ""
@@ -1717,7 +2268,7 @@ if [[ "$SILENT_MODE" != "true" ]]; then
         TEST_OUTPUT_FILE=$(mktemp /tmp/ness_relay_test_XXXXXX.log)
         source "$ENV_FILE"
         cd "$INSTALL_DIR"
-        ./executables/$EXEC_NAME --config "$INSTALL_DIR/configs/connection.config" 2>&1 | tee "$TEST_OUTPUT_FILE"
+        ./executables/$INSTALLED_BINARY_NAME --config "$INSTALL_DIR/configs/connection.config" 2>&1 | tee "$TEST_OUTPUT_FILE"
         TEST_EXIT_CODE=${PIPESTATUS[0]}
 
         echo ""
@@ -1782,8 +2333,27 @@ if [[ "$SILENT_MODE" != "true" ]]; then
         echo -e "${WHITE}Prueba omitida. El relay se ejecutará automáticamente cada 5 minutos vía cron.${NC}"
     fi
 else
-    INSTALL_STATUS="skipped"
-    echo -e "${WHITE}Modo silencioso: omitiendo prueba interactiva.${NC}"
+    if [[ "$GUIDED_MODE" == "true" ]]; then
+        echo -e "${WHITE}Modo guiado: ejecutando primera corrida automática del relay...${NC}"
+        FIRST_RUN_OUTPUT_FILE=$(mktemp /tmp/ness_relay_first_run_XXXXXX.log)
+        source "$ENV_FILE"
+        cd "$INSTALL_DIR"
+        ./executables/$INSTALLED_BINARY_NAME --config "$INSTALL_DIR/configs/connection.config" 2>&1 | tee "$FIRST_RUN_OUTPUT_FILE"
+        FIRST_RUN_EXIT_CODE=${PIPESTATUS[0]}
+
+        if [[ $FIRST_RUN_EXIT_CODE -eq 0 ]]; then
+            INSTALL_STATUS="success"
+            log_message "SUCCESS" "Primera ejecución automática completada correctamente"
+        else
+            INSTALL_STATUS="unknown_error"
+            log_message "WARNING" "Primera ejecución automática finalizó con código $FIRST_RUN_EXIT_CODE"
+            echo -e "${YELLOW}Revise el detalle en: $FIRST_RUN_OUTPUT_FILE${NC}"
+        fi
+    else
+        INSTALL_STATUS="skipped"
+        echo -e "${WHITE}Modo silencioso: omitiendo prueba interactiva.${NC}"
+    fi
+fi
 fi
 
 ###############################################################################
@@ -1805,11 +2375,11 @@ fi
 
 echo -e "${WHITE}${BOLD}📁 DETALLES DE LA INSTALACIÓN:${NC}"
 echo -e "${WHITE}  • Directorio de instalación:${NC} ${BOLD}$INSTALL_DIR${NC}"
-echo -e "${WHITE}  • Ejecutable:${NC}               ${DIM}$INSTALL_DIR/executables/$EXEC_NAME${NC}"
+echo -e "${WHITE}  • Ejecutable:${NC}               ${DIM}$INSTALL_DIR/executables/$INSTALLED_BINARY_NAME${NC}"
 echo -e "${WHITE}  • Configuración:${NC}            ${DIM}$INSTALL_DIR/configs/connection.config${NC}"
 echo -e "${WHITE}  • Script de ejecución:${NC}      ${DIM}$RUN_SCRIPT${NC}"
 echo -e "${WHITE}  • Log de ejecución:${NC}         ${DIM}$INSTALL_DIR/logs/ness_relay.log${NC}"
-echo -e "${WHITE}  • Programación:${NC}             ${GREEN}Cada 5 minutos via cron${NC}"
+echo -e "${WHITE}  • Programación:${NC}             ${GREEN}${SCHEDULE_LABEL}${NC}"
 echo ""
 echo -e "${WHITE}${BOLD}🔒 SEGURIDAD:${NC}"
 echo -e "${WHITE}  • Ver configuración protegida:${NC}  ${DIM}sudo $INSTALL_DIR/executables/view_config.sh${NC}"
@@ -1826,7 +2396,7 @@ echo ""
 echo ""
 if [[ "$INSTALL_STATUS" == "success" ]] || [[ "$INSTALL_STATUS" == "skipped" ]]; then
     echo -e "${GREEN}${BOLD}🎉 ¡INSTALACIÓN FINALIZADA EXITOSAMENTE!${NC}"
-    echo -e "${WHITE}   El relay está programado para ejecutarse cada 5 minutos.${NC}"
+    echo -e "${WHITE}   El relay quedó programado como: ${GREEN}${SCHEDULE_LABEL}${NC}"
     echo -e "${WHITE}   Para ver diagnósticos en tiempo real, ejecute: ${GREEN}sudo $RUN_SCRIPT${NC}"
 else
     echo -e "${YELLOW}${BOLD}⚠️  INSTALACIÓN FINALIZADA CON ADVERTENCIAS${NC}"
@@ -1835,3 +2405,5 @@ else
 fi
 echo -e "${DIM}   Gracias por usar NESS HQ Network Relay System${NC}"
 echo ""
+
+cleanup_source_package_if_needed

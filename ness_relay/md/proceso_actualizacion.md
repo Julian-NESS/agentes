@@ -70,6 +70,8 @@ Secuencia:
    - Descarga ZIP del nuevo binario.
    - Verifica SHA-256 del ZIP (si no coincide, falla).
    - Extrae binario y reemplaza ejecutable actual.
+   - Recarga el `connection.config` previo antes de regenerarlo.
+   - Reutiliza las variables de entorno preservadas en `/etc/profile.d/ness_relay.sh`.
    - Ajusta permisos de ejecucion.
    - Limpia backups antiguos (mantiene MAX_BACKUPS).
    - Restaura configuracion.
@@ -80,6 +82,32 @@ Secuencia:
    - Finaliza proceso actual para que supervisor lo levante de nuevo.
 5. Si no hay update:
    - Continuan ciclos normales.
+
+## Preservación de entorno en actualización
+
+Cuando el agente ejecuta una actualización (--update-only), el instalador NO reemplaza:
+
+1. **Variables de entorno del servidor**:
+   - `NESS_SERVER_ID`: Mantiene exactamente el entorno anterior (1=On-premise, 2=Testing, 3=Cloud).
+   - `NESS_API_TOKEN`: Preserva el token de autenticación existente.
+   - Esto evita que actualizaciones cambien automáticamente de entorno.
+
+2. **Configuración de dispositivos**:
+   - `connection.config`: Se recarga desde el archivo previo y se preservan TODAS las credenciales SNMP.
+   - Los dispositivos, sus IPs, puertos, versiones SNMP y credenciales quedan exactamente como estaban.
+
+3. **Rutas de instalación**:
+   - `NESS_INSTALL_DIR`, `NESS_DEVICES_FILE`, `NESS_OUTPUT_DIR`, `NESS_LOG_DIR` se preservan.
+
+### Flujo técnico
+
+1. Cuando entra en `--update-only`, el instalador llama a `load_existing_env_vars()`.
+2. Esa función extrae SERVER_ID y API_TOKEN del archivo `/etc/profile.d/ness_relay.sh` existente.
+3. Carga `connection.config` desde `/opt/ness_relay/configs/` y replica exactamente las entradas.
+4. Regenera `/etc/profile.d/ness_relay.sh` usando las variables preservadas.
+5. El resultado: misma configuración, binario nuevo.
+
+Esto es crítico porque permite actualizar el agente sin perder el entorno (dev/testing/prod) ni la configuración SNMP.
 
 ## Flujo de actualizacion manual
 
@@ -100,6 +128,11 @@ Que hace:
    - Reemplaza binario.
    - Limpia backups.
 3. Muestra en logs que debes reiniciar el agente para aplicar la nueva version.
+
+Nota importante:
+
+- La instalacion de actualización ahora recarga el `connection.config` existente antes de regenerarlo, para evitar que quede vacío durante la actualización.
+- La verificacion post-instalacion valida el binario realmente instalado en `/opt/ness_relay/executables/ness-relay-<arquitectura>`, no el ejecutable viejo desde el que se ejecutó el update.
 
 Notas:
 
