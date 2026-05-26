@@ -1,35 +1,26 @@
 // ==============================================================================
 // NESS Relay v2.0.0 — Registro de perfiles (ProfileLoader)
-// Equivalente Python: profiles/profile_loader.py
 // ==============================================================================
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::base::DeviceProfile;
+// Importamos desde vendors usando la nueva estructura de carpetas
 use super::vendors::{
-    c_n::CambiumProfile,
-    cisco::CiscoProfile,
-    fortinet::FortinetProfile,
-    generic::GenericProfile,
-    mikrotik::MikroTikProfile,
-    mikrotik_fw::MikroTikFwProfile,
-    pfsense::PfSenseProfile,
-    ubnt::UbntProfile,
+    switches::{cisco::CiscoProfile, huawei::HuaweiProfile, dell::DellProfile, datacomm::DatacomProfile, tp_link::TpLinkProfile},
+    firewalls::{fortinet::FortinetProfile, pfsense::PfSenseProfile, sophos::SophosProfile},
+    // wireless::{ubnt::UbntProfile, mikrotik::MikroTikProfile}, // Comentado si wireless mod está inactivo
 };
 
-// ==============================================================================
-// PROFILE LOADER
-// ==============================================================================
+// Importación del perfil genérico
+use super::vendors::generic::GenericProfile; 
 
-/// Registro central de perfiles de dispositivo.
-/// Equivale al ProfileLoader de Python con patrón registry.
 pub struct ProfileLoader {
     profiles: HashMap<String, Arc<dyn DeviceProfile>>,
 }
 
 impl ProfileLoader {
-    /// Crea e inicializa el loader con todos los vendors soportados.
     pub fn new() -> Self {
         let mut loader = Self {
             profiles: HashMap::new(),
@@ -38,27 +29,33 @@ impl ProfileLoader {
         loader
     }
 
-    /// Registra todos los perfiles disponibles.
     fn register_all(&mut self) {
+        // --- Firewalls ---
         self.register("pfsense",    Arc::new(PfSenseProfile::new()));
         self.register("fortinet",   Arc::new(FortinetProfile::new()));
-        self.register("mikrotik",   Arc::new(MikroTikProfile::new()));
-        self.register("mikrotik_fw", Arc::new(MikroTikFwProfile::new()));
+        self.register("sophos",     Arc::new(SophosProfile)); 
+
+        // --- Switches ---
         self.register("cisco",      Arc::new(CiscoProfile::new()));
-        self.register("ubnt",       Arc::new(UbntProfile::new()));
-        self.register("c_n",        Arc::new(CambiumProfile::new()));
+        self.register("huawei",     Arc::new(HuaweiProfile));
+        self.register("dell",       Arc::new(DellProfile));
+        self.register("datacomm",   Arc::new(DatacomProfile)); 
+        self.register("tp_link",    Arc::new(TpLinkProfile));
+
+        // --- Wireless (Solo activar si tienes los archivos y el mod.rs listo) ---
+        // self.register("mikrotik",   Arc::new(MikroTikProfile::new()));
+        // self.register("ubnt",       Arc::new(UbntProfile::new()));
+
+        // --- Genéricos / Otros ---
+        self.register("generic",    Arc::new(GenericProfile::new("generic")));
         self.register("linux",      Arc::new(GenericProfile::new("linux")));
         self.register("windows",    Arc::new(GenericProfile::new("windows")));
-        self.register("generic",    Arc::new(GenericProfile::new("generic")));
     }
 
-    /// Registra un perfil bajo una clave de vendor.
     pub fn register(&mut self, vendor: &str, profile: Arc<dyn DeviceProfile>) {
         self.profiles.insert(vendor.to_lowercase(), profile);
     }
 
-    /// Obtiene el perfil para un vendor específico.
-    /// Si el vendor no se encuentra, retorna el perfil genérico.
     pub fn get_profile(&self, vendor: &str) -> Arc<dyn DeviceProfile> {
         let key = vendor.to_lowercase();
         self.profiles
@@ -72,15 +69,12 @@ impl ProfileLoader {
             })
     }
 
-    /// Lista todos los vendors registrados.
     pub fn list_vendors(&self) -> Vec<&String> {
         let mut vendors: Vec<&String> = self.profiles.keys().collect();
         vendors.sort();
         vendors
     }
 
-    /// Intenta auto-detectar el perfil por sysObjectID.
-    /// Retorna None si no hay coincidencia.
     pub fn auto_detect(&self, sys_object_id: &str) -> Option<Arc<dyn DeviceProfile>> {
         for profile in self.profiles.values() {
             if profile.matches_sys_object_id(sys_object_id) {
@@ -88,45 +82,6 @@ impl ProfileLoader {
             }
         }
         None
-    }
-
-    /// Resuelve el mejor perfil disponible usando sysObjectID y como respaldo sysDescr.
-    pub fn resolve_profile(
-        &self,
-        fallback_vendor: &str,
-        sys_object_id: &str,
-        sys_descr: &str,
-    ) -> Arc<dyn DeviceProfile> {
-        if let Some(profile) = self.auto_detect(sys_object_id) {
-            return profile;
-        }
-
-        let normalized_descr = sys_descr.to_lowercase();
-        let inferred_vendor = if normalized_descr.contains("pfsense") {
-            Some("pfsense")
-        } else if normalized_descr.contains("fortinet") || normalized_descr.contains("fortigate") {
-            Some("fortinet")
-        } else if normalized_descr.contains("mikrotik") || normalized_descr.contains("routeros") {
-            Some("mikrotik")
-        } else if normalized_descr.contains("ubiquiti") || normalized_descr.contains("ubnt") {
-            Some("ubnt")
-        } else if normalized_descr.contains("cisco") {
-            Some("cisco")
-        } else if normalized_descr.contains("cambium") {
-            Some("c_n")
-        } else if normalized_descr.contains("windows") {
-            Some("windows")
-        } else if normalized_descr.contains("linux") || normalized_descr.contains("freebsd") {
-            Some("linux")
-        } else {
-            None
-        };
-
-        if let Some(vendor) = inferred_vendor {
-            return self.get_profile(vendor);
-        }
-
-        self.get_profile(fallback_vendor)
     }
 }
 

@@ -27,17 +27,29 @@ use tracing::{info, warn};
 // ESTRUCTURAS DE DATOS
 // ==============================================================================
 
-/// Metadata de actualización parseada desde latest.json
+/// Metadata de actualización parseada desde latest.json (multi-arquitectura)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateMetadata {
     pub version: String,
     pub release_date: String,
+    pub min_supported: String,
+    #[serde(default)]
+    pub variants: Vec<ArchVariant>,  // Array de variantes por arquitectura
+    #[serde(default)]
+    pub installer: Option<PackInfo>, // Instalador (install_relay.sh) opcional
+    pub changelog: Vec<String>,
+}
+
+/// Variante de arquitectura dentro de UpdateMetadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArchVariant {
     pub arch: String,
     pub platform: String,
-    pub min_supported: String,
-    pub base_url: String,
-    pub pack: PackInfo,
-    pub changelog: Vec<String>,
+    /// Algunos releases usan `pack` (ZIP) y otros usan `binary` (descarga directa).
+    #[serde(default)]
+    pub pack: Option<PackInfo>,
+    #[serde(default)]
+    pub binary: Option<PackInfo>,
 }
 
 /// Información del paquete a descargar
@@ -151,9 +163,70 @@ pub async fn fetch_update_metadata(metadata_url: &str, api_token: &str) -> Resul
     parse_metadata(&body)
 }
 
+/// Detecta la arquitectura actual del sistema.
+/// 
+/// Utiliza `uname -m` para identificar si es x86_64, aarch64, etc.
+/// Los valores detectados se normalizan a formas canónicas.
+pub fn detect_architecture() -> Result<String> {
+    let output = std::process::Command::new("uname")
+        .arg("-m")
+        .output()
+        .context("No se pudo ejecutar 'uname -m' para detectar arquitectura")?;
+
+    let arch_raw = String::from_utf8(output.stdout)
+        .context("No se pudo parsear output de uname")?
+        .trim()
+        .to_string();
+
+    // Normalizar a valores canónicos que conoce el metadata
+    let arch = match arch_raw.as_str() {
+        "x86_64" | "amd64" => "x86_64".to_string(),
+        "aarch64" | "arm64" => "aarch64".to_string(),
+        "armv7l" | "armv7" => "armv7l".to_string(),
+        other => other.to_string(),
+    };
+
+    info!("Arquitectura del sistema detectada: {} (raw: {})", arch, arch_raw);
+    Ok(arch)
+}
+
+/// Selecciona la variante de actualización correcta para la arquitectura target.
+/// 
+/// Retorna un error si no existe variante disponible para la arquitectura especificada.
+pub fn select_variant<'a>(
+    metadata: &'a UpdateMetadata,
+    target_arch: &str,
+) -> Result<&'a ArchVariant> {
+    metadata
+        .variants
+        .iter()
+        .find(|v| v.arch == target_arch)
+        .and_then(|v| {
+            // Aceptar la variante si tiene pack o binary definido
+            if v.pack.is_some() || v.binary.is_some() {
+                Some(v)
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| {
+            anyhow!(
+                "No hay variante disponible para arquitectura '{}'. Variantes disponibles: {}",
+                target_arch,
+                metadata
+                    .variants
+                    .iter()
+                    .map(|v| v.arch.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        })
+}
+
 /// Comprueba si hay una actualización disponible.
 ///
 /// Retorna `Some(UpdateMetadata)` si existe una versión más nueva y compatible.
+/// Detecta la arquitectura actual y selecciona la variante correspondiente.
 pub async fn check_for_updates(
     version_check_url: &str,
     api_token: &str,
@@ -166,11 +239,39 @@ pub async fn check_for_updates(
 
             match is_compatible_upgrade(local_version, &metadata.version, &metadata.min_supported) {
                 Ok(_) => {
-                    info!(
-                        "Nueva versión disponible: {} → {}",
-                        local_version, metadata.version
-                    );
-                    Ok(Some(metadata))
+                    // Detectar arquitectura actual del sistema
+                    match detect_architecture() {
+                        Ok(current_arch) => {
+                            // Seleccionar variante compatible con la arquitectura
+                            match select_variant(&metadata, &current_arch) {
+                                Ok(variant) => {
+                                    info!(
+                                        "Nueva versión disponible: {} → {} (arquitectura: {})",
+                                        local_version, metadata.version, current_arch
+                                    );
+                                    let pkg_name = variant
+                                        .pack
+                                        .as_ref()
+                                        .map(|p| p.fileName.as_str())
+                                        .or_else(|| variant.binary.as_ref().map(|b| b.fileName.as_str()))
+                                        .unwrap_or("<unknown>");
+                                    info!("Paquete a descargar: {}", pkg_name);
+                                    Ok(Some(metadata))
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        "Arquitectura '{}' no soportada en esta versión: {}",
+                                        current_arch, e
+                                    );
+                                    Ok(None)
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            warn!("No se pudo detectar arquitectura para validar actualización: {}", e);
+                            Err(e)
+                        }
+                    }
                 }
                 Err(e) => {
                     warn!("Actualización no compatible: {}", e);
@@ -188,7 +289,17 @@ pub async fn check_for_updates(
 /// Descarga el archivo de actualización (ZIP) de forma streaming.
 /// Retorna la ruta al archivo descargado en `/tmp`.
 pub async fn download_update(url: &str) -> Result<PathBuf> {
-    let tmp_path = PathBuf::from("/tmp/ness_relay_update.zip");
+    // Elegimos nombre destino según la extensión
+    let tmp_path = if url.to_lowercase().ends_with(".zip") {
+        PathBuf::from("/tmp/ness_relay_update.zip")
+    } else {
+        // intentar derivar nombre del archivo
+        let filename = url
+            .rsplit('/')
+            .next()
+            .unwrap_or("ness-relay-binary");
+        PathBuf::from(format!("/tmp/{}_download", filename))
+    };
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
@@ -462,9 +573,23 @@ pub async fn cleanup_backups(_install_dir: &Path, max_versions: usize) -> Result
 /// Punto de entrada del proceso de actualización completo.
 /// Retorna `Ok(true)` si la actualización fue exitosa y el agente debe reiniciarse.
 pub async fn apply_update(metadata: &UpdateMetadata) -> Result<()> {
+    // Detectar arquitectura actual para seleccionar la variante correcta
+    let current_arch = detect_architecture()
+        .context("No se pudo detectar arquitectura para aplicar actualización")?;
+    
+    let variant = select_variant(metadata, &current_arch)
+        .context(format!("No hay actualización disponible para {}", current_arch))?;
+    
+    let download_url = variant
+        .pack
+        .as_ref()
+        .map(|p| p.url.as_str())
+        .or_else(|| variant.binary.as_ref().map(|b| b.url.as_str()))
+        .unwrap_or("<no-url>");
+
     info!(
-        "Descargando actualización v{} desde: {}",
-        metadata.version, metadata.pack.url
+        "Descargando actualización v{} desde: {} (arquitectura: {})",
+        metadata.version, download_url, current_arch
     );
 
     // Guardar configuración crítica antes de descargar/reemplazar
@@ -490,18 +615,179 @@ pub async fn apply_update(metadata: &UpdateMetadata) -> Result<()> {
         appcfg.log_dir.clone(),
     )
     .await?;
+    // If metadata provides an installer script, prefer that flow: download installer and execute it.
+    if let Some(inst) = &metadata.installer {
+        let installer_url = inst.url.clone();
+        let installer_sha = inst.sha256.clone();
+        let installer_path = download_update(&installer_url).await?;
+        verify_hash(&installer_path, &installer_sha).await?;
 
-    let zip_path = download_update(&metadata.pack.url).await?;
+        // Backup current executable before running installer
+        let current_exe = std::env::current_exe()?;
+        let fallback_name = current_exe
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "ness-relay-x86_64".to_string());
 
-    verify_hash(&zip_path, &metadata.pack.sha256).await?;
+        let date_ts = chrono::Utc::now().format("%Y%m%d").to_string();
+        let backup_dir_name = format!("backup_v{}_{}", super::config::RELAY_VERSION, date_ts);
+        let backup_root = PathBuf::from("/opt");
+        let backup_dir = backup_root.join(&backup_dir_name);
+        if !backup_dir.exists() {
+            std::fs::create_dir_all(&backup_dir).ok();
+        }
+        let backup_path = backup_dir.join(
+            current_exe
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("ness-relay-backup"),
+        );
+        std::fs::copy(&current_exe, &backup_path)?;
+        info!("Backup del binario actual en: {}", backup_path.display());
 
-    let fallback_name = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.file_name().and_then(|n| n.to_str()).map(|s| s.to_string()))
-        .unwrap_or_else(|| "ness-relay-x86_64".to_string());
+        // Make installer executable
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o755);
+            std::fs::set_permissions(&installer_path, perms)?;
+        }
 
-    extract_and_replace(&zip_path, &fallback_name)?;
-    let _ = tokio::fs::remove_file(&zip_path).await;
+        // Execute installer script in a blocking task
+        info!("Ejecutando instalador descargado: {}", installer_path.display());
+                // En modo actualización, pasar variables de entorno para el instalador
+        let mut cmd = tokio::process::Command::new("bash");
+        cmd.arg(installer_path.to_string_lossy().as_ref())
+            .arg("--silent")
+            .arg("--force")
+            .arg("--update-only");
+                if let Ok(token) = std::env::var("NESS_API_TOKEN") {
+                    cmd.env("NESS_API_TOKEN", &token);
+                    info!("Token pasado al instalador");
+                }
+                if let Ok(server_id) = std::env::var("NESS_SERVER_ID") {
+                    cmd.env("NESS_SERVER_ID", &server_id);
+                    info!("Server ID pasado al instalador: {}", server_id);
+                }
+
+        let status = cmd.status().await.context("Fallo al ejecutar instalador")?;
+        if !status.success() {
+            let exit_code = status.code().unwrap_or(-1);
+            warn!("Instalador devolvió código de salida: {}", exit_code);
+            // Attempt rollback
+            if backup_path.exists() {
+                std::fs::copy(&backup_path, &current_exe)?;
+                info!("Rollback: binario restaurado desde {}", backup_path.display());
+            }
+            return Err(anyhow!("Instalador falló con código {}; se aplicó rollback", exit_code));
+        }
+
+        // Verificar versión instalada ejecutando el binario con --version
+        let installed_binary_path = PathBuf::from("/opt/ness_relay/executables")
+            .join(format!("ness-relay-{}", current_arch));
+        let verify_ok = {
+            let verify_target = if installed_binary_path.exists() {
+                installed_binary_path.clone()
+            } else {
+                warn!(
+                    "No se encontró el binario instalado esperado en {}. Se usará el ejecutable actual como respaldo.",
+                    installed_binary_path.display()
+                );
+                current_exe.clone()
+            };
+
+            let mut vcmd = tokio::process::Command::new(verify_target);
+            vcmd.arg("--version");
+            match vcmd.output().await {
+                Ok(out) => {
+                    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                    stdout.contains(&metadata.version)
+                }
+                Err(e) => {
+                    warn!("No se pudo ejecutar binario para verificación: {}", e);
+                    false
+                }
+            }
+        };
+
+        if !verify_ok {
+            warn!("Verificación post-instalación falló: versión esperada {}", metadata.version);
+            if backup_path.exists() {
+                std::fs::copy(&backup_path, &current_exe)?;
+                info!("Rollback: binario restaurado desde {}", backup_path.display());
+            }
+            return Err(anyhow!("Verificación post-instalación falló; rollback aplicado"));
+        }
+
+        let _ = tokio::fs::remove_file(&installer_path).await;
+        info!("Instalador ejecutado y verificación exitosa v{}", metadata.version);
+    } else {
+        // Determinar URL y SHA-256 (soportar `binary` o `pack` en metadata)
+        let (url, expected_sha) = if let Some(b) = &variant.binary {
+            (b.url.clone(), b.sha256.clone())
+        } else if let Some(p) = &variant.pack {
+            (p.url.clone(), p.sha256.clone())
+        } else {
+            return Err(anyhow!("Variante seleccionada no contiene información de descarga"));
+        };
+
+        let download_path = download_update(&url).await?;
+
+        verify_hash(&download_path, &expected_sha).await?;
+
+        let fallback_name = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.file_name().and_then(|n| n.to_str()).map(|s| s.to_string()))
+            .unwrap_or_else(|| "ness-relay-x86_64".to_string());
+
+        // Si el archivo descargado es un ZIP, extraer; si es binario directo, reemplazar.
+        let dl_str = download_path.to_string_lossy().to_lowercase();
+        if dl_str.ends_with(".zip") {
+            extract_and_replace(&download_path, &fallback_name)?;
+            let _ = tokio::fs::remove_file(&download_path).await;
+        } else {
+            // instalar binario directo: hacer backup y reemplazo atómico similar a extract_and_replace
+            let current_exe = std::env::current_exe()?;
+            let install_dir = current_exe
+                .parent()
+                .ok_or_else(|| anyhow!("No se pudo determinar el directorio de instalación"))?;
+
+            // Backup
+            let date_ts = chrono::Utc::now().format("%Y%m%d").to_string();
+            let backup_dir_name = format!("backup_v{}_{}", super::config::RELAY_VERSION, date_ts);
+            let backup_root = PathBuf::from("/opt");
+            let backup_dir = backup_root.join(&backup_dir_name);
+            if !backup_dir.exists() {
+                std::fs::create_dir_all(&backup_dir).ok();
+            }
+            let backup_path = backup_dir.join(
+                current_exe
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("ness-relay-backup"),
+            );
+            std::fs::copy(&current_exe, &backup_path)?;
+            info!("Backup del binario actual en: {}", backup_path.display());
+
+            // Copiar nuevo binario al staged path
+            let staged = install_dir.join(format!("{}.new", fallback_name));
+            std::fs::copy(&download_path, &staged)?;
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let perms = std::fs::Permissions::from_mode(0o755);
+                std::fs::set_permissions(&staged, perms.clone())?;
+            }
+
+            std::fs::rename(&staged, &current_exe)
+                .context("No se pudo reemplazar el ejecutable actual de forma atómica")?;
+
+            let _ = tokio::fs::remove_file(&download_path).await;
+            info!("Binario actualizado desde descarga directa: {}", current_exe.display());
+        }
+    }
 
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {

@@ -7,9 +7,12 @@ use std::process::Command;
 use std::time::Duration;
 
 use super::config::{load_devices_from_config, DeviceConfig};
+use crate::profiles::loader::ProfileLoader;
 use crate::snmp::{SnmpClient, SnmpVersion};
 
 const SYS_NAME_OID: &str = "1.3.6.1.2.1.1.5.0";
+const SYS_DESCR_OID: &str = "1.3.6.1.2.1.1.1.0";
+const SYS_OBJECT_ID_OID: &str = "1.3.6.1.2.1.1.2.0";
 const AUTOCOMPLETE_FILE: &str = "/tmp/ness_smart_tester_autocomplete.conf";
 
 pub async fn run_verify_setup(
@@ -43,7 +46,7 @@ pub async fn run_verify_setup(
             }
 
             if allow_snmp {
-                if let Some(manual_device) = prompt_manual_snmp_device(&ip, assume_yes)? {
+                if let Some(manual_device) = prompt_manual_snmp_device(&ip, assume_yes).await? {
                     devices.push(manual_device);
                 }
             } else {
@@ -257,7 +260,7 @@ fn prompt_manual_target_ip(assume_yes: bool) -> Result<Option<String>> {
     }
 }
 
-fn prompt_manual_snmp_device(ip: &str, assume_yes: bool) -> Result<Option<DeviceConfig>> {
+async fn prompt_manual_snmp_device(ip: &str, assume_yes: bool) -> Result<Option<DeviceConfig>> {
     if assume_yes || !io::stdin().is_terminal() {
         return Ok(None);
     }
@@ -313,55 +316,65 @@ fn prompt_manual_snmp_device(ip: &str, assume_yes: bool) -> Result<Option<Device
             println!();
             println!("Protocolo de Autenticación:");
             println!("  1) MD5       (HMAC-MD5-96)");
-            println!("  2) SHA       (HMAC-SHA1-96)");
+            println!("  2) SHA       (HMAC-SHA1-96, recomendado)");
             println!("  3) SHA256    (HMAC-SHA2-256-128)");
             println!("  4) SHA256-192 (HMAC-SHA2-256-192)");
             println!("  5) SHA384    (HMAC-SHA2-384-192)");
             println!("  6) SHA512    (HMAC-SHA2-512-256)");
-            let auth_choice = read_input("Selecciona 1-6 [default: 1]: ")?;
+            println!("  7) NONE      (sin autenticación — no usar con privacidad)");
+            let auth_choice = read_input("Selecciona 1-7 [default: 2]: ")?;
             device.v3_auth_protocol = match auth_choice.trim() {
+                "1" => "MD5".to_string(),
                 "2" => "SHA".to_string(),
                 "3" => "SHA256".to_string(),
                 "4" => "SHA256-192".to_string(),
                 "5" => "SHA384".to_string(),
                 "6" => "SHA512".to_string(),
-                _ => "MD5".to_string(),
+                "7" => "NONE".to_string(),
+                _ => "SHA".to_string(),
             };
 
-            // Opción de visibilidad de contraseña
-            let show_auth_pass = ask_yes_no("¿Desea ver la contraseña al ingresarla? (Y/n): ")?;
-            let auth_password = if show_auth_pass {
-                read_required_input("Auth password SNMPv3: ")?
-            } else {
-                read_password("Auth password SNMPv3: ")?
-            };
-            device.v3_auth_password = auth_password;
-
-            // Menú numérico para protocolo de privacidad
-            println!();
-            println!("Protocolo de Privacidad (Encriptación):");
-            println!("  1) AES128  (AES-128-CFB)");
-            println!("  2) AES192  (AES-192-CFB)");
-            println!("  3) AES256  (AES-256-CFB)");
-            println!("  4) DES     (DES-CBC, obsoleto)");
-            println!("  5) NONE    (sin encriptación)");
-            let priv_choice = read_input("Selecciona 1-5 [default: 1]: ")?;
-            device.v3_priv_protocol = match priv_choice.trim() {
-                "2" => "AES192".to_string(),
-                "3" => "AES256".to_string(),
-                "4" => "DES".to_string(),
-                "5" => "NONE".to_string(),
-                _ => "AES128".to_string(),
-            };
-
-            if device.v3_priv_protocol != "NONE" {
-                let show_priv_pass = ask_yes_no("¿Desea ver la contraseña al ingresarla? (Y/n): ")?;
-                let priv_password = if show_priv_pass {
-                    read_required_input("Priv password SNMPv3: ")?
+            if device.v3_auth_protocol != "NONE" {
+                // Opción de visibilidad de contraseña
+                let show_auth_pass = ask_yes_no("¿Desea ver la contraseña al ingresarla? (Y/n): ")?;
+                let auth_password = if show_auth_pass {
+                    read_required_input("Auth password SNMPv3: ")?
                 } else {
-                    read_password("Priv password SNMPv3: ")?
+                    read_password("Auth password SNMPv3: ")?
                 };
-                device.v3_priv_password = priv_password;
+                device.v3_auth_password = auth_password;
+
+                // Menú numérico para protocolo de privacidad
+                println!();
+                println!("Protocolo de Privacidad (Encriptación):");
+                println!("  1) AES128  (AES-128-CFB, recomendado)");
+                println!("  2) AES192  (AES-192-CFB)");
+                println!("  3) AES256  (AES-256-CFB)");
+                println!("  4) DES     (DES-CBC, obsoleto)");
+                println!("  5) NONE    (sin encriptación)");
+                let priv_choice = read_input("Selecciona 1-5 [default: 1]: ")?;
+                device.v3_priv_protocol = match priv_choice.trim() {
+                    "2" => "AES192".to_string(),
+                    "3" => "AES256".to_string(),
+                    "4" => "DES".to_string(),
+                    "5" => "NONE".to_string(),
+                    _ => "AES128".to_string(),
+                };
+
+                if device.v3_priv_protocol != "NONE" {
+                    let show_priv_pass = ask_yes_no("¿Desea ver la contraseña al ingresarla? (Y/n): ")?;
+                    let priv_password = if show_priv_pass {
+                        read_required_input("Priv password SNMPv3: ")?
+                    } else {
+                        read_password("Priv password SNMPv3: ")?
+                    };
+                    device.v3_priv_password = priv_password;
+                }
+            } else {
+                println!("[INFO] SNMPv3 sin autenticación: privacidad desactivada automáticamente (NONE).");
+                device.v3_auth_password.clear();
+                device.v3_priv_protocol = "NONE".to_string();
+                device.v3_priv_password.clear();
             }
         }
         _ => {
@@ -371,6 +384,26 @@ fn prompt_manual_snmp_device(ip: &str, assume_yes: bool) -> Result<Option<Device
                 device.community = community.trim().to_string();
             }
         }
+    }
+
+    let profile_loader = ProfileLoader::new();
+    if let Ok(client) = SnmpClient::new(&device.to_json()).await {
+        let sys_descr = client.get(SYS_DESCR_OID).await
+            .value
+            .as_ref()
+            .map(|v| v.as_string())
+            .unwrap_or_default();
+        let sys_object_id = client.get(SYS_OBJECT_ID_OID).await
+            .value
+            .as_ref()
+            .map(|v| v.as_string())
+            .unwrap_or_default();
+
+        let resolved_profile = profile_loader.resolve_profile(&device.vendor, &sys_object_id, &sys_descr);
+        if resolved_profile.vendor() != device.vendor {
+            println!("[OK] Vendor detectado automáticamente: {} ({})", resolved_profile.vendor_display_name(), resolved_profile.vendor());
+        }
+        device.vendor = resolved_profile.vendor().to_string();
     }
 
     Ok(Some(device))

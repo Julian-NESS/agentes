@@ -5,7 +5,7 @@
   "installer": {
     "url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/2.0.2/install_relay.sh",
     "fileName": "install_relay.sh",
-    "sha256": "561640cb1204c3a09cc1e6984f07602659d12e8b6df7e92def19d1a54e12bd4b"
+    "sha256": "4236be304182d283ea15e336cc0542db78f7cb9056e4f01a2d0768628c373fba"
   },
   "variants": [
     {
@@ -14,7 +14,7 @@
       "binary": {
         "url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/2.0.2/ness-relay-x86_64",
         "fileName": "ness-relay-x86_64",
-        "sha256": "f699990e69c6e8a45fdf6e5fcca328fa885c2c95e5fbe8948bda8f9067555462"
+        "sha256": "4cb275c7ce230d070b2c4c94616cef563f2015c467f60668f08dad395f1e7d23"
       }
     },
     {

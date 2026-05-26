@@ -32,6 +32,9 @@ use crate::profiles::loader::ProfileLoader;
 use crate::snmp::SnmpClient;
 use crate::utils::helpers::now_iso;
 
+const SYS_DESCR_OID: &str = "1.3.6.1.2.1.1.1.0";
+const SYS_OBJECT_ID_OID: &str = "1.3.6.1.2.1.1.2.0";
+
 pub struct CollectionEngine {
     config: Arc<AppConfig>,
     profile_loader: ProfileLoader,
@@ -83,6 +86,31 @@ impl CollectionEngine {
         }
         info!("[{}] [2/8] Conectividad OK", device.device_id);
 
+        let sys_descr_result = client.get(SYS_DESCR_OID).await;
+        let sys_descr = sys_descr_result
+            .value
+            .as_ref()
+            .map(|v| v.as_string())
+            .unwrap_or_default();
+        let sys_object_id_result = client.get(SYS_OBJECT_ID_OID).await;
+        let sys_object_id = sys_object_id_result
+            .value
+            .as_ref()
+            .map(|v| v.as_string())
+            .unwrap_or_default();
+
+        let profile = self.profile_loader.resolve_profile(
+            &device.vendor,
+            &sys_object_id,
+            &sys_descr,
+        );
+        info!(
+            "[{}] [2/8] Perfil resuelto: {} ({})",
+            device.device_id,
+            profile.vendor_display_name(),
+            profile.vendor()
+        );
+
         // [3/8] Información del sistema
         info!("[{}] [3/8] Recolectando sistema…", device.device_id);
         let system_data = system_col::collect(&client).await;
@@ -110,7 +138,7 @@ impl CollectionEngine {
 
         // Construir payload con formato idéntico al Python
         // El servidor espera: metadata, system, performance, network, security
-        let vendor_key = format!("{}_specific", device.vendor);
+        let vendor_key = format!("{}_specific", profile.vendor());
         let mut payload = json!({
             "metadata": {
                 "collection_start": collection_start,
@@ -195,7 +223,10 @@ impl CollectionEngine {
                 .and_then(|m| m.get("device_type"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("generic");
-            let vendor = &device.vendor;
+            let vendor = payload.get("metadata")
+                .and_then(|m| m.get("vendor"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("generic");
             let device_out_dir = install_dir
                 .join("devices")
                 .join(format!("{}_{}", device_type, vendor))
