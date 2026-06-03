@@ -520,7 +520,15 @@ impl DeviceProfile for MikroTikFwProfile {
 
 async fn collect_system_info(client: &SnmpClient) -> Value {
     let mut info = Map::new();
-    
+
+    // Mantener esquema estable (paridad con payload Python) incluso
+    // cuando un OID no esté disponible en el dispositivo.
+    info.insert("mtxr_firmware_version".into(), Value::Null);
+    info.insert("mtxr_license_id".into(), Value::Null);
+    info.insert("mtxr_serial_number".into(), Value::Null);
+    info.insert("mtxr_firmware_upgrade_ver".into(), Value::Null);
+    info.insert("mtxr_board_name".into(), Value::Null);
+
     if let Some(fw_ver) = snmp_get_clean_string(client, OID_MTXR_FIRMWARE_VERSION).await {
         info.insert("mtxr_firmware_version".into(), json!(fw_ver));
     }
@@ -542,6 +550,15 @@ async fn collect_system_info(client: &SnmpClient) -> Value {
 
 async fn collect_health(client: &SnmpClient) -> Value {
     let mut health = Map::new();
+
+    // Mantener claves explícitas para compatibilidad de esquema.
+    health.insert("temperature_celsius".into(), Value::Null);
+    health.insert("processor_temp_celsius".into(), Value::Null);
+    health.insert("voltage_volts".into(), Value::Null);
+    health.insert("current_ma".into(), Value::Null);
+    health.insert("power_watts".into(), Value::Null);
+    health.insert("fan1_rpm".into(), Value::Null);
+    health.insert("fan2_rpm".into(), Value::Null);
 
     if let Some(temp) = snmp_get_i64(client, OID_MTXR_HL_TEMPERATURE).await {
         health.insert("temperature_celsius".into(), json!(round1(temp as f64 / 10.0)));

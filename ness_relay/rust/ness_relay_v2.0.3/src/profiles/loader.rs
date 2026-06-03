@@ -21,18 +21,18 @@ use std::sync::Arc;
 
 use super::base::DeviceProfile;
 use super::vendors::{
-    c_n::CambiumProfile,
-    cisco::CiscoProfile,
-    fortinet::FortinetProfile,
-    generic::GenericProfile,
-    mikrotik::MikroTikProfile,
-    mikrotik_fw::MikroTikFwProfile,
-    pfsense::PfSenseProfile,
-    ubnt::UbntProfile,
-    huawei::HuaweiProfile,
-    tp_link::TpLinkProfile,
-    dell::DellProfile,
-    datacomm::DatacomProfile,
+    access_points::c_n::CambiumProfile,
+    firewalls::fortinet::FortinetProfile,
+    firewalls::mikrotik_fw::MikroTikFwProfile,
+    firewalls::pfsense::PfSenseProfile,
+    routers::cisco::CiscoProfile,
+    routers::mikrotik::MikroTikProfile,
+    shared::generic::GenericProfile,
+    switches::datacomm::DatacomProfile,
+    switches::dell::DellProfile,
+    switches::huawei::HuaweiProfile,
+    switches::tp_link::TpLinkProfile,
+    switches::ubnt::UbntProfile,
 };
 
 // ==============================================================================
@@ -112,8 +112,8 @@ impl ProfileLoader {
         // Vector de detección por sysObjectID, en orden de prioridad.
         // IMPORTANTE: MikroTik RouterOS va primero que MikroTik FW porque
         // ambos comparten el OID enterprise 1.3.6.1.4.1.14988.
-        // Por defecto detectamos como "mikrotik" (router). Si el usuario
-        // necesita el perfil firewall, lo configura explícitamente.
+        // `auto_detect` retorna "mikrotik" por defecto y `resolve_profile`
+        // decide si promover a "mikrotik_fw" según contexto del fallback.
         self.detection_order = vec![
             pfsense,
             fortinet,
@@ -241,6 +241,13 @@ impl ProfileLoader {
         None
     }
 
+    fn is_generic_fallback_vendor(vendor: &str) -> bool {
+        matches!(
+            vendor,
+            "" | "generic" | "linux" | "windows" | "router" | "switch" | "firewall" | "ap" | "access_point" | "other"
+        )
+    }
+
     /// Resuelve el mejor perfil disponible usando sysObjectID y como respaldo sysDescr.
     ///
     /// Cadena de detección:
@@ -258,8 +265,26 @@ impl ProfileLoader {
         sys_object_id: &str,
         sys_descr: &str,
     ) -> Arc<dyn DeviceProfile> {
+        let fallback_vendor_normalized = fallback_vendor.trim().to_lowercase();
+        let fallback_is_generic = Self::is_generic_fallback_vendor(&fallback_vendor_normalized);
+
+        // Si el vendor viene explícito desde connection.config, respetarlo para
+        // evitar sobrescribir configuraciones intencionales (ej. mikrotik_fw).
+        if !fallback_vendor_normalized.is_empty()
+            && !fallback_is_generic
+            && self.profiles.contains_key(&fallback_vendor_normalized)
+        {
+            return self.get_profile(&fallback_vendor_normalized);
+        }
+
         // --- Paso 1: Detección por sysObjectID ---
         if let Some(profile) = self.auto_detect(sys_object_id) {
+            // Cuando el fallback es genérico (generic/linux/windows/other), un
+            // MikroTik detectado por OID se promueve al perfil firewall para
+            // conservar métricas avanzadas (internet_channels, queues, health).
+            if profile.vendor() == "mikrotik" && fallback_is_generic {
+                return self.get_profile("mikrotik_fw");
+            }
             return profile;
         }
 
@@ -298,6 +323,9 @@ impl ProfileLoader {
         };
 
         if let Some(vendor) = inferred_vendor {
+            if vendor == "mikrotik" && fallback_is_generic {
+                return self.get_profile("mikrotik_fw");
+            }
             return self.get_profile(vendor);
         }
 
@@ -307,7 +335,7 @@ impl ProfileLoader {
 
         // --- Paso 3: Fallback al vendor del connection.config ---
         // Si el config dice "generic", caerá al perfil genérico.
-        self.get_profile(fallback_vendor)
+        self.get_profile(&fallback_vendor_normalized)
     }
 }
 

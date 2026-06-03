@@ -40,7 +40,9 @@ pub fn server_url_by_id(server_id: &str) -> &'static str {
     }
 }
 
-/// Vendors soportados.
+/// Vendors soportados (solo dispositivos de red).
+/// Se usan para parsear el archivo connection.config:
+///   {vendor}_{index}_ip=...
 pub const SUPPORTED_VENDORS: &[&str] = &[
     "pfsense",
     "cisco",
@@ -49,8 +51,10 @@ pub const SUPPORTED_VENDORS: &[&str] = &[
     "mikrotik_fw",
     "c_n",
     "ubnt",
-    "linux",
-    "windows",
+    "huawei",
+    "tp_link",
+    "dell",
+    "datacomm",
     "generic",
 ];
 
@@ -256,7 +260,15 @@ pub fn load_devices_from_config(config_file: &Path) -> Result<Vec<DeviceConfig>>
                     entry.insert(field.to_string(), v.clone());
                 }
             }
-            entry.insert("vendor".to_string(), vendor.to_string());
+            let explicit_vendor = entry
+                .get("vendor")
+                .map(|v| v.trim().to_lowercase())
+                .filter(|v| !v.is_empty() && SUPPORTED_VENDORS.contains(&v.as_str()));
+
+            entry.insert(
+                "vendor".to_string(),
+                explicit_vendor.unwrap_or_else(|| vendor.to_string()),
+            );
             entry.insert("device_id".to_string(), prefix.clone());
             idx += 1;
         }

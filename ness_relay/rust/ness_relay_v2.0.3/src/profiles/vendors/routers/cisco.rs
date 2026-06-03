@@ -16,7 +16,7 @@ use serde_json::json;
 
 use crate::profiles::base::DeviceProfile;
 use crate::snmp::{SnmpClient, types::SnmpValue};
-use crate::profiles::vendors::generic::GenericProfile;
+use crate::profiles::vendors::shared::generic::GenericProfile;
 
 /// Perfil Cisco — actualmente delega en GenericProfile.
 /// Se actualizará en la Phase 2 con los MIBs propietarios de Cisco.
