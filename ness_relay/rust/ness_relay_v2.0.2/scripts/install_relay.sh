@@ -168,6 +168,18 @@ cleanup_source_package_if_needed() {
 declare -A SELECTED_VENDORS
 declare -A DEVICE_CONFIGS
 
+get_configured_vendors() {
+    local vendor_list=()
+
+    if [[ ${#SELECTED_VENDORS[@]} -gt 0 ]]; then
+        mapfile -t vendor_list < <(printf '%s\n' "${!SELECTED_VENDORS[@]}" | sort)
+    else
+        vendor_list=("${VENDORS[@]}")
+    fi
+
+    printf '%s\n' "${vendor_list[@]}"
+}
+
 # Nombre del ejecutable (binario estático Rust)
 EXEC_NAME="ness-relay"
 INSTALLED_BINARY_NAME=""
@@ -310,11 +322,13 @@ normalize_guided_vendor() {
     normalized="${normalized//[[:space:]]/}"
 
     case "$normalized" in
-        windows|win)
-            echo "windows"
+        generic|auto|any|unknown|other|firewall|router|switch|ap|access_point)
+            echo "generic"
             ;;
-        linux)
-            echo "linux"
+        windows|win|linux|mac|darwin)
+            # En instalación guiada de Relay el valor corresponde al SO del servidor
+            # donde se instala el agente, no al vendor real del dispositivo SNMP.
+            echo "generic"
             ;;
         cisco)
             echo "cisco"
@@ -338,7 +352,7 @@ normalize_guided_vendor() {
             echo "c_n"
             ;;
         *)
-            echo "linux"
+            echo "generic"
             ;;
     esac
 }
@@ -346,7 +360,7 @@ normalize_guided_vendor() {
 setup_guided_configuration_from_env() {
     local key_prefix config_key
 
-    GUIDED_VENDOR="$(normalize_guided_vendor "${NESS_RELAY_VENDOR:-${NESS_RELAY_DEVICE_VENDOR:-linux}}")"
+    GUIDED_VENDOR="$(normalize_guided_vendor "${NESS_RELAY_VENDOR:-${NESS_RELAY_DEVICE_VENDOR:-generic}}")"
     GUIDED_SNMP_VERSION="${NESS_RELAY_SNMP_VERSION:-2c}"
     GUIDED_DEVICE_IP="${NESS_RELAY_DEVICE_IP:-}"
     GUIDED_DEVICE_PORT="${NESS_RELAY_SNMP_PORT:-161}"
@@ -503,7 +517,8 @@ normalize_snmpv3_priv_protocol() {
 
 normalize_snmpv3_device_configs() {
     local vendor count device_count config_key snmp_version auth_key priv_key auth_pass_key priv_pass_key
-    for vendor in "${VENDORS[@]}"; do
+    while IFS= read -r vendor; do
+        [[ -z "$vendor" ]] && continue
         count="${DEVICE_CONFIGS[${vendor}_count]:-0}"
         [[ "$count" =~ ^[0-9]+$ ]] || continue
 
@@ -531,7 +546,7 @@ normalize_snmpv3_device_configs() {
                 DEVICE_CONFIGS["$priv_pass_key"]=""
             fi
         done
-    done
+    done < <(get_configured_vendors)
 }
 
 # Imprime un box de 3 líneas (╔═╗ / ║título║ / ╚═╝) adaptado al ancho del terminal
@@ -849,10 +864,24 @@ interactive_device_configuration() {
 
 # Función para cargar configuración desde archivo
 load_config_file() {
-    local config_file="$1"
+    local config_source="$1"
+    local config_file="$config_source"
+    local temp_download_file=""
+
+    if [[ "$config_source" =~ ^https?:// ]]; then
+        temp_download_file="$(mktemp /tmp/ness_relay_config_XXXXXX.config)"
+        log_message "PROGRESS" "Descargando configuración desde: $config_source"
+        if ! download_file "$config_source" "$temp_download_file"; then
+            log_message "ERROR" "No se pudo descargar la configuración desde: $config_source"
+            rm -f "$temp_download_file" 2>/dev/null || true
+            exit 1
+        fi
+        config_file="$temp_download_file"
+    fi
 
     if [[ ! -f "$config_file" ]]; then
         log_message "ERROR" "Archivo de configuración no encontrado: $config_file"
+        [[ -n "$temp_download_file" ]] && rm -f "$temp_download_file" 2>/dev/null || true
         exit 1
     fi
 
@@ -887,6 +916,10 @@ load_config_file() {
             DEVICE_CONFIGS["$key"]="$value"
         fi
     done < "$config_file"
+
+    if [[ -n "$temp_download_file" ]]; then
+        rm -f "$temp_download_file" 2>/dev/null || true
+    fi
 }
 
 # Función para generar archivo de configuración
@@ -931,7 +964,8 @@ generate_config_file() {
         echo "# ═══════════════════════════════════════════════════════════"
         echo ""
 
-        for vendor in "${VENDORS[@]}"; do
+        while IFS= read -r vendor; do
+            [[ -z "$vendor" ]] && continue
             if [[ "${SELECTED_VENDORS[$vendor]}" == "true" ]]; then
                 local count="${DEVICE_CONFIGS[${vendor}_count]}"
                 echo "# ─────────────────────────────────────────────────────────"
@@ -965,7 +999,7 @@ generate_config_file() {
                 done
                 echo ""
             fi
-        done
+        done < <(get_configured_vendors)
     } > "$config_file"
 
     log_message "SUCCESS" "Configuración guardada en: $config_file"
@@ -1011,7 +1045,7 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Opciones:"
             echo "  --silent               Instalar en modo silencioso (sin menús)"
-            echo "  --config-file FILE     Usar archivo de configuración existente"
+            echo "  --config-file FILE     Usar archivo de configuración existente o una URL"
             echo "  --force                Forzar instalación sobre existente"
             echo "  --token TOKEN          Token de API de NESS HQ"
             echo "  --env ENV_ID           ID del servidor (1=On-premise, 2=Testing, 3=Cloud)"
@@ -1068,6 +1102,13 @@ if [[ -n "$NESS_SERVER_ID" ]]; then
     esac
 fi
 
+# Permitir que el frontend pase una URL temporal de connection.config.
+if [[ -z "$CONFIG_FILE" && -n "$NESS_DEVICES_FILE_URL" ]]; then
+    CONFIG_FILE="$NESS_DEVICES_FILE_URL"
+    SILENT_MODE=true
+    log_message "INFO" "Configuración de dispositivos obtenida desde NESS_DEVICES_FILE_URL"
+fi
+
 # Capturar NESS_TIME si está disponible (para auto-configurar cron, en minutos)
 if [[ -n "$NESS_TIME" ]]; then
     CRON_INTERVAL="$NESS_TIME"
@@ -1075,7 +1116,7 @@ if [[ -n "$NESS_TIME" ]]; then
 fi
 
 # Activar modo guiado automáticamente cuando llegan variables del frontend
-if [[ "${NESS_GUIDED_INSTALL:-}" == "true" ]] || [[ -n "$NESS_RELAY_DEVICE_IP" ]]; then
+if [[ -z "$CONFIG_FILE" && ( "${NESS_GUIDED_INSTALL:-}" == "true" || -n "$NESS_RELAY_DEVICE_IP" ) ]]; then
     GUIDED_MODE=true
     SILENT_MODE=true
     log_message "INFO" "Modo guiado detectado por variables de entorno"
@@ -1474,13 +1515,14 @@ echo ""
 print_box "RESUMEN DE CONFIGURACIÓN" "${WHITE}${BOLD}"
 echo ""
 total_devices=0
-for vendor in "${VENDORS[@]}"; do
+while IFS= read -r vendor; do
+    [[ -z "$vendor" ]] && continue
     if [[ "${SELECTED_VENDORS[$vendor]}" == "true" ]]; then
         count="${DEVICE_CONFIGS[${vendor}_count]}"
         echo -e "${GREEN}✓${NC} ${WHITE}$vendor:${NC} ${DIM}$count dispositivo(s)${NC}"
         total_devices=$((total_devices + count))
     fi
-done
+done < <(get_configured_vendors)
 echo ""
 echo -e "${WHITE}${BOLD}Total de dispositivos a monitorear: ${GREEN}$total_devices${NC}"
 echo ""

@@ -1,0 +1,390 @@
+{
+    "metadata": {
+      "collection_start": "2026-05-29T08:40:04.289851-05:00",
+      "snmp_host": "10.10.10.1",
+      "snmp_port": 161,
+      "vendor": "mikrotik_fw",
+      "vendor_display_name": "MikroTik Firewall (RouterOS)",
+      "device_type": "firewall",
+      "relay_version": "2.0.0",
+      "relay_type": "ness-relay-ubuntu",
+      "description": "",
+      "collection_end": "2026-05-29T08:40:42.922913-05:00",
+      "collection_duration_seconds": 38.96,
+      "total_interfaces": 3
+    },
+    "system": {
+      "timestamp": "2026-05-29T08:40:04.290010-05:00",
+      "collection_time_utc": "2026-05-29T13:40:04.290034+00:00",
+      "basic_info": {
+        "sys_name": "MikroTik",
+        "sys_descr": "RouterOS CHR 7.22.2 (stable)",
+        "sys_location": "BogotÃ¡ D.C.",
+        "sys_contact": "relay-user",
+        "sys_uptime": {
+          "total_seconds": 4685,
+          "days": 0,
+          "hours": 1,
+          "minutes": 18,
+          "seconds": 5,
+          "formatted": "0d 1h 18m 5s"
+        }
+      }
+    },
+    "performance": {
+      "cpu": {
+        "cpu_usage_percent": 1.0,
+        "load_1min": null,
+        "load_5min": null,
+        "load_15min": null
+      },
+      "memory": {
+        "mem_usage_percent": 21.48,
+        "mem_total_mb": 1024.0,
+        "mem_used_mb": 220.16,
+        "mem_free_mb": 803.84,
+        "swap_total_mb": 0.0,
+        "swap_free_mb": 0.0
+      },
+      "disk": {
+        "1": {
+          "index": "1",
+          "path": "system disk",
+          "total_gb": 0.087,
+          "used_gb": 0.02,
+          "free_gb": 0.068,
+          "percent_used": 22.46
+        }
+      },
+      "collection_timestamp": "2026-05-29T08:40:04.314218-05:00"
+    },
+    "network": {
+      "interfaces": {
+        "1": {
+          "index": "1",
+          "name": "lo",
+          "admin_status": "UP",
+          "operational_status": "UP",
+          "speed_mbps": 0,
+          "traffic_in_mb": 0.0,
+          "traffic_out_mb": 0.0,
+          "errors_in": 0,
+          "errors_out": 0,
+          "total_errors": 0,
+          "discards_in": 0,
+          "discards_out": 0
+        },
+        "2": {
+          "index": "2",
+          "name": "ether1",
+          "admin_status": "UP",
+          "operational_status": "UP",
+          "speed_mbps": 1000,
+          "traffic_in_mb": 44.51,
+          "traffic_out_mb": 1.74,
+          "errors_in": 0,
+          "errors_out": 0,
+          "total_errors": 0,
+          "discards_in": 0,
+          "discards_out": 0
+        },
+        "3": {
+          "index": "3",
+          "name": "ether2",
+          "admin_status": "UP",
+          "operational_status": "UP",
+          "speed_mbps": 1000,
+          "traffic_in_mb": 1.82,
+          "traffic_out_mb": 44.29,
+          "errors_in": 0,
+          "errors_out": 0,
+          "total_errors": 0,
+          "discards_in": 0,
+          "discards_out": 0
+        }
+      },
+      "collection_timestamp": "2026-05-29T08:40:04.398229-05:00"
+    },
+    "security": {
+      "tcp_security": {
+        "tcp_active_opens": {
+          "error": "noSuchName at 1.3.6.1.2.1.6.5.0"
+        },
+        "tcp_passive_opens": {
+          "error": "noSuchName at 1.3.6.1.2.1.6.6.0"
+        },
+        "tcp_attempt_fails": {
+          "error": "noSuchName at 1.3.6.1.2.1.6.7.0"
+        },
+        "tcp_estab_resets": {
+          "error": "noSuchName at 1.3.6.1.2.1.6.8.0"
+        },
+        "tcp_curr_estab": {
+          "error": "noSuchName at 1.3.6.1.2.1.6.9.0"
+        },
+        "tcp_in_segs": {
+          "error": "noSuchName at 1.3.6.1.2.1.6.10.0"
+        },
+        "tcp_out_segs": {
+          "error": "noSuchName at 1.3.6.1.2.1.6.11.0"
+        },
+        "tcp_retrans_segs": {
+          "error": "noSuchName at 1.3.6.1.2.1.6.12.0"
+        },
+        "tcp_out_rsts": {
+          "error": "noSuchName at 1.3.6.1.2.1.6.15.0"
+        }
+      },
+      "udp_security": {
+        "udp_in_datagrams": {
+          "error": "noSuchName at 1.3.6.1.2.1.7.1.0"
+        },
+        "udp_out_datagrams": {
+          "error": "noSuchName at 1.3.6.1.2.1.7.4.0"
+        },
+        "udp_no_ports": {
+          "error": "noSuchName at 1.3.6.1.2.1.7.2.0"
+        },
+        "udp_in_errors": {
+          "error": "noSuchName at 1.3.6.1.2.1.7.3.0"
+        }
+      },
+      "ip_security": {
+        "ip_in_receives": {
+          "error": "noSuchName at 1.3.6.1.2.1.4.3.0"
+        },
+        "ip_in_hdr_errors": {
+          "error": "noSuchName at 1.3.6.1.2.1.4.4.0"
+        },
+        "ip_in_addr_errors": {
+          "error": "noSuchName at 1.3.6.1.2.1.4.5.0"
+        },
+        "ip_in_unknown_protos": {
+          "error": "noSuchName at 1.3.6.1.2.1.4.7.0"
+        },
+        "ip_in_discards": {
+          "error": "noSuchName at 1.3.6.1.2.1.4.8.0"
+        },
+        "ip_frag_oks": {
+          "error": "noSuchName at 1.3.6.1.2.1.4.17.0"
+        },
+        "ip_frag_fails": {
+          "error": "noSuchName at 1.3.6.1.2.1.4.18.0"
+        }
+      },
+      "icmp_security": {
+        "icmp_in_msgs": {
+          "error": "noSuchName at 1.3.6.1.2.1.5.1.0"
+        },
+        "icmp_in_errors": {
+          "error": "noSuchName at 1.3.6.1.2.1.5.2.0"
+        },
+        "icmp_in_dest_unreachs": {
+          "error": "noSuchName at 1.3.6.1.2.1.5.3.0"
+        },
+        "icmp_in_time_excds": {
+          "error": "noSuchName at 1.3.6.1.2.1.5.4.0"
+        },
+        "icmp_in_redirects": {
+          "error": "noSuchName at 1.3.6.1.2.1.5.7.0"
+        },
+        "icmp_in_echos": {
+          "error": "noSuchName at 1.3.6.1.2.1.5.8.0"
+        },
+        "icmp_in_echo_reps": {
+          "error": "noSuchName at 1.3.6.1.2.1.5.9.0"
+        }
+      },
+      "snmp_security": {
+        "snmp_in_pkts": {
+          "error": "noSuchName at 1.3.6.1.2.1.11.1.0"
+        },
+        "snmp_in_bad_community_names": {
+          "error": "noSuchName at 1.3.6.1.2.1.11.4.0"
+        },
+        "snmp_in_bad_community_uses": {
+          "error": "noSuchName at 1.3.6.1.2.1.11.5.0"
+        },
+        "snmp_in_bad_versions": {
+          "error": "noSuchName at 1.3.6.1.2.1.11.3.0"
+        },
+        "snmp_in_asn_parse_errs": {
+          "error": "noSuchName at 1.3.6.1.2.1.11.6.0"
+        },
+        "snmp_in_gen_errs": {
+          "error": "noSuchName at 1.3.6.1.2.1.11.12.0"
+        }
+      },
+      "collection_timestamp": "2026-05-29T08:40:17.310436-05:00",
+      "normalized": {
+        "tcp": {
+          "active_opens": 0,
+          "passive_opens": 0,
+          "current_estab": 0,
+          "attempt_fails": 0,
+          "estab_resets": 0,
+          "in_segs": 0,
+          "out_segs": 0,
+          "retrans_segs": 0,
+          "out_rsts": 0,
+          "retransmission_rate_percent": 0.0
+        },
+        "udp": {
+          "in_datagrams": 0,
+          "out_datagrams": 0,
+          "no_ports": 0,
+          "in_errors": 0,
+          "error_rate_percent": 0.0
+        },
+        "ip": {
+          "in_receives": 0,
+          "in_hdr_errors": 0,
+          "in_addr_errors": 0,
+          "in_unknown_protos": 0,
+          "in_discards": 0,
+          "frag_oks": 0,
+          "frag_fails": 0,
+          "error_rate_percent": 0.0,
+          "fragmentation_rate_percent": 0.0
+        },
+        "icmp": {
+          "in_msgs": 0,
+          "in_errors": 0,
+          "in_echos": 0,
+          "in_echo_reps": 0,
+          "echo_reply_rate_percent": 0.0
+        },
+        "snmp": {
+          "in_pkts": 0,
+          "bad_community_names": 0,
+          "bad_versions": 0,
+          "asn_parse_errs": 0,
+          "gen_errs": 0,
+          "bad_community_rate_percent": 0.0
+        }
+      }
+    },
+    "mikrotik_fw_specific": {
+      "system_info": {
+        "mtxr_firmware_version": "7.22.2",
+        "mtxr_license_id": "0",
+        "mtxr_serial_number": null,
+        "mtxr_firmware_upgrade_ver": null,
+        "mtxr_board_name": "CHR innotek GmbH VirtualBox"
+      },
+      "health": {
+        "temperature_celsius": null,
+        "processor_temp_celsius": null,
+        "voltage_volts": null,
+        "current_ma": null,
+        "power_watts": null,
+        "fan1_rpm": null,
+        "fan2_rpm": null
+      },
+      "cpu_detailed": {
+        "cores": [
+          {
+            "index": "1",
+            "load_percent": 1.0
+          }
+        ],
+        "core_count": 1,
+        "average_percent": 1.0
+      },
+      "disk_fallback": {
+        "mtxr_hl_disk_total": 0,
+        "mtxr_hl_disk_used": 0
+      },
+      "interfaces_total": 3,
+      "wan_interfaces": [
+        {
+          "index": "2",
+          "name": "ether1",
+          "if_name": "ether1",
+          "alias": null,
+          "is_wan": true,
+          "admin_status": "UP",
+          "oper_status": "UP",
+          "speed_mbps": 1000,
+          "traffic_in_bytes": 0,
+          "traffic_out_bytes": 0,
+          "traffic_in_mb": 0.0,
+          "traffic_out_mb": 0.0,
+          "errors_in": 0,
+          "errors_out": 0,
+          "discards_in": 0,
+          "discards_out": 0,
+          "packets_in": 0,
+          "packets_out": 0,
+          "isp_detected": null
+        }
+      ],
+      "netwatch": {
+        "probes": [],
+        "summary": {
+          "total": 0,
+          "up": 0,
+          "down": 0,
+          "availability_percent": null
+        },
+        "available": false
+      },
+      "queues": {
+        "entries": [],
+        "summary": {
+          "total_queues": 0,
+          "total_tx_gb": 0.0,
+          "total_rx_gb": 0.0,
+          "total_tx_drops": 0,
+          "total_rx_drops": 0
+        },
+        "available": false
+      },
+      "internet_channels": {
+        "channels": [
+          {
+            "channel_name": "ether1",
+            "isp": "Desconocido",
+            "source": "wan_interface",
+            "oper_status": "UP",
+            "is_up": true,
+            "speed_mbps": 1000,
+            "traffic_in_mb": 0.0,
+            "traffic_out_mb": 0.0,
+            "errors_in": 0,
+            "errors_out": 0,
+            "discards_in": 0,
+            "discards_out": 0,
+            "netwatch_status": null,
+            "alerts": []
+          }
+        ],
+        "summary": {
+          "total_channels": 1,
+          "channels_up": 1,
+          "channels_down": 0,
+          "total_traffic_in_mb": 0.0,
+          "total_traffic_out_mb": 0.0,
+          "netwatch_available": false,
+          "queues_available": false
+        }
+      },
+      "collection_timestamp": "2026-05-29T08:40:17.487061-05:00"
+    },
+    "security_analysis": {
+      "timestamp": "2026-05-29T08:40:42.922633-05:00",
+      "total_alerts": 0,
+      "total_warnings": 0,
+      "alerts": [],
+      "warnings": [],
+      "security_status": "ok"
+    },
+    "performance_analysis": {
+      "timestamp": "2026-05-29T08:40:42.922832-05:00",
+      "total_alerts": 0,
+      "total_warnings": 0,
+      "alerts": [],
+      "warnings": [],
+      "performance_status": "ok"
+    }
+}
