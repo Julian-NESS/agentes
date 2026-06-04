@@ -39,16 +39,16 @@ pub trait DeviceProfile: Send + Sync {
     // -----------------------------------------------------------------------
 
     /// OIDs específicos del vendor para CPU.
-    fn get_cpu_oids(&self) -> HashMap<String, String>;
+    fn get_cpu_oids(&self, sys_object_id: &str) -> HashMap<String, String>;
+    
+    /// Devuelve los OIDs específicos para uso de memoria
+    fn get_memory_oids(&self, sys_object_id: &str) -> HashMap<String, String>;
+    
+    /// Devuelve los OIDs específicos para uso de disco/particiones
+    fn get_disk_oids(&self, sys_object_id: &str) -> HashMap<String, String>;
 
-    /// OIDs específicos del vendor para memoria.
-    fn get_memory_oids(&self) -> HashMap<String, String>;
-
-    /// OIDs específicos del vendor para discos/almacenamiento.
-    fn get_disk_oids(&self) -> HashMap<String, String>;
-
-    /// OIDs adicionales específicos del vendor (no cubiertos por los anteriores).
-    fn get_vendor_oids(&self) -> HashMap<String, String> {
+    /// Devuelve OIDs propietarios del vendor (temperatura, sesiones, etc.)
+    fn get_vendor_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         HashMap::new()
     }
 

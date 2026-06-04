@@ -50,14 +50,14 @@ impl DeviceProfile for GenericProfile {
         }
     }
 
-    fn get_cpu_oids(&self) -> HashMap<String, String> {
+    fn get_cpu_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         // HOST-RESOURCES-MIB
         m.insert("hrProcessorLoad".into(), "1.3.6.1.2.1.25.3.3.1.2".into());
         m
     }
 
-    fn get_memory_oids(&self) -> HashMap<String, String> {
+    fn get_memory_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         // HOST-RESOURCES-MIB (hrStorageTable — buscar tipos RAM)
         m.insert("hrStorageDescr".into(),            "1.3.6.1.2.1.25.2.3.1.3".into());
@@ -70,7 +70,7 @@ impl DeviceProfile for GenericProfile {
         m
     }
 
-    fn get_disk_oids(&self) -> HashMap<String, String> {
+    fn get_disk_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         m.insert("hrStorageTable".into(),            "1.3.6.1.2.1.25.2.3".into());
         m.insert("hrStorageDescr".into(),            "1.3.6.1.2.1.25.2.3.1.3".into());

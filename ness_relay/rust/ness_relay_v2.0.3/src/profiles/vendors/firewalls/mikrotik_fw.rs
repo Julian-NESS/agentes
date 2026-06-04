@@ -243,18 +243,18 @@ impl DeviceProfile for MikroTikFwProfile {
     fn vendor_display_name(&self) -> &str { "MikroTik Firewall (RouterOS)" }
     fn device_type(&self) -> &str { "firewall" }
 
-    fn get_cpu_oids(&self) -> HashMap<String, String> {
+    fn get_cpu_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         m.insert("cpu_load".into(), OID_HR_PROCESSOR_LOAD.into());
         m
     }
 
-    fn get_memory_oids(&self) -> HashMap<String, String> {
+    fn get_memory_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         // Retorna vacío — memoria se extrae en post_process_performance de hrStorageTable
         HashMap::new()
     }
 
-    fn get_disk_oids(&self) -> HashMap<String, String> {
+    fn get_disk_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         m.insert("hrStorageTable".into(), OID_HR_STORAGE_TABLE.into());
         m.insert("hrStorageDescr".into(), OID_HR_STORAGE_DESCR.into());
@@ -264,7 +264,7 @@ impl DeviceProfile for MikroTikFwProfile {
         m
     }
 
-    fn get_vendor_oids(&self) -> HashMap<String, String> {
+    fn get_vendor_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         // Interfaces
         m.insert("if_number".into(), OID_IF_NUMBER.into());

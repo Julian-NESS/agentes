@@ -11,6 +11,8 @@ use crate::snmp::SnmpClient;
 pub async fn collect(
     client: &SnmpClient,
     profile: &Arc<dyn DeviceProfile>,
+    sys_object_id: &str,
 ) -> serde_json::Value {
+    // Delegar al perfil para la lógica específica (e.g. tablas propietarias)
     profile.collect_vendor_specific_data(client).await
 }

@@ -11,19 +11,31 @@ impl DeviceProfile for DellProfile {
     fn vendor_display_name(&self) -> &str { "Dell Networking" }
     fn device_type(&self) -> &str { "switch" }
 
-    fn get_cpu_oids(&self) -> HashMap<String, String> {
+    fn get_cpu_oids(&self, sys_object_id: &str) -> HashMap<String, String> {
         let mut oids = HashMap::new();
-        oids.insert("cpu_usage".to_string(), ".1.3.6.1.4.1.6027.3.26.1.4.4.1.5".to_string());
+        match sys_object_id {
+            // Excepciones para modelos específicos de Dell
+            _ => {
+                // OID global por defecto
+                oids.insert("cpu_usage".to_string(), ".1.3.6.1.4.1.6027.3.26.1.4.4.1.5".to_string());
+            }
+        }
         oids
     }
 
-    fn get_memory_oids(&self) -> HashMap<String, String> {
+    fn get_memory_oids(&self, sys_object_id: &str) -> HashMap<String, String> {
         let mut oids = HashMap::new();
-        oids.insert("mem_usage".to_string(), ".1.3.6.1.4.1.6027.3.26.1.4.4.1.6".to_string());
+        match sys_object_id {
+            // Excepciones para modelos específicos de Dell
+            _ => {
+                // OID global por defecto
+                oids.insert("mem_usage".to_string(), ".1.3.6.1.4.1.6027.3.26.1.4.4.1.6".to_string());
+            }
+        }
         oids
     }
 
-    fn get_disk_oids(&self) -> HashMap<String, String> { HashMap::new() }
+    fn get_disk_oids(&self, _sys_object_id: &str) -> HashMap<String, String> { HashMap::new() }
 
     async fn collect_vendor_specific_data(&self, _client: &SnmpClient) -> serde_json::Value {
         serde_json::json!({ "vendor": "Dell" })

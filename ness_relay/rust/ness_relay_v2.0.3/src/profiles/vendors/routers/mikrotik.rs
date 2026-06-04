@@ -29,14 +29,14 @@ impl DeviceProfile for MikroTikProfile {
     fn vendor_display_name(&self) -> &str { "MikroTik RouterOS" }
     fn device_type(&self) -> &str { "router" }
 
-    fn get_cpu_oids(&self) -> HashMap<String, String> {
+    fn get_cpu_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         // HOST-RESOURCES-MIB para CPU por núcleo
         m.insert("hrProcessorTable".into(), "1.3.6.1.2.1.25.3.3.1.2".into()); // hrProcessorLoad
         m
     }
 
-    fn get_memory_oids(&self) -> HashMap<String, String> {
+    fn get_memory_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         // MIKROTIK-MIB: memoria total y libre en bytes
         m.insert("mtxrHlTotalMemory".into(), "1.3.6.1.4.1.14988.1.1.1.17.0".into());
@@ -44,7 +44,7 @@ impl DeviceProfile for MikroTikProfile {
         m
     }
 
-    fn get_disk_oids(&self) -> HashMap<String, String> {
+    fn get_disk_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         // HOST-RESOURCES-MIB: tabla de almacenamiento
         m.insert("hrStorageTable".into(), "1.3.6.1.2.1.25.2.3".into());
@@ -55,7 +55,7 @@ impl DeviceProfile for MikroTikProfile {
         m
     }
 
-    fn get_vendor_oids(&self) -> HashMap<String, String> {
+    fn get_vendor_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         // MIKROTIK-MIB: health e información del sistema
         m.insert("mtxrHlTemperature".into(),   "1.3.6.1.4.1.14988.1.1.1.3.0".into());

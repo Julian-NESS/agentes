@@ -11,20 +11,31 @@ impl DeviceProfile for TpLinkProfile {
     fn vendor_display_name(&self) -> &str { "TP-Link" }
     fn device_type(&self) -> &str { "switch" }
 
-    fn get_cpu_oids(&self) -> HashMap<String, String> {
+    fn get_cpu_oids(&self, sys_object_id: &str) -> HashMap<String, String> {
         let mut oids = HashMap::new();
-        // OID para series JetStream
-        oids.insert("cpu_usage".to_string(), ".1.3.6.1.4.1.11863.6.1.1.1.1.1.0".to_string());
+        match sys_object_id {
+            // Excepciones para modelos específicos de TP-Link
+            _ => {
+                // OID global por defecto para series JetStream
+                oids.insert("cpu_usage".to_string(), ".1.3.6.1.4.1.11863.6.1.1.1.1.1.0".to_string());
+            }
+        }
         oids
     }
 
-    fn get_memory_oids(&self) -> HashMap<String, String> {
+    fn get_memory_oids(&self, sys_object_id: &str) -> HashMap<String, String> {
         let mut oids = HashMap::new();
-        oids.insert("mem_usage".to_string(), ".1.3.6.1.4.1.11863.6.1.1.1.1.2.0".to_string());
+        match sys_object_id {
+            // Excepciones para modelos específicos de TP-Link
+            _ => {
+                // OID global por defecto
+                oids.insert("mem_usage".to_string(), ".1.3.6.1.4.1.11863.6.1.1.1.1.2.0".to_string());
+            }
+        }
         oids
     }
 
-    fn get_disk_oids(&self) -> HashMap<String, String> { HashMap::new() }
+    fn get_disk_oids(&self, _sys_object_id: &str) -> HashMap<String, String> { HashMap::new() }
 
     async fn collect_vendor_specific_data(&self, _client: &SnmpClient) -> serde_json::Value {
         serde_json::json!({ "vendor": "TP-Link" })

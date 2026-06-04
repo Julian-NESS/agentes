@@ -11,21 +11,31 @@ impl DeviceProfile for DatacomProfile {
     fn vendor_display_name(&self) -> &str { "Datacom" }
     fn device_type(&self) -> &str { "switch" }
 
-    fn get_cpu_oids(&self) -> HashMap<String, String> {
+    fn get_cpu_oids(&self, sys_object_id: &str) -> HashMap<String, String> {
         let mut oids = HashMap::new();
-        // OID estándar para CPU en Datacom
-        oids.insert("cpu_usage".to_string(), ".1.3.6.1.4.1.3709.3.5.2.1.1.1.1.0".to_string());
+        match sys_object_id {
+            // Excepciones para modelos específicos de Datacom
+            _ => {
+                // OID estándar para CPU en Datacom
+                oids.insert("cpu_usage".to_string(), ".1.3.6.1.4.1.3709.3.5.2.1.1.1.1.0".to_string());
+            }
+        }
         oids
     }
 
-    fn get_memory_oids(&self) -> HashMap<String, String> {
+    fn get_memory_oids(&self, sys_object_id: &str) -> HashMap<String, String> {
         let mut oids = HashMap::new();
-        // OID estándar para Memoria en Datacom
-        oids.insert("mem_usage".to_string(), ".1.3.6.1.4.1.3709.3.5.2.1.1.1.2.0".to_string());
+        match sys_object_id {
+            // Excepciones para modelos específicos de Datacom
+            _ => {
+                // OID estándar para Memoria en Datacom
+                oids.insert("mem_usage".to_string(), ".1.3.6.1.4.1.3709.3.5.2.1.1.1.2.0".to_string());
+            }
+        }
         oids
     }
 
-    fn get_disk_oids(&self) -> HashMap<String, String> { HashMap::new() }
+    fn get_disk_oids(&self, _sys_object_id: &str) -> HashMap<String, String> { HashMap::new() }
 
     async fn collect_vendor_specific_data(&self, _client: &SnmpClient) -> serde_json::Value {
         serde_json::json!({ "vendor": "Datacom" })

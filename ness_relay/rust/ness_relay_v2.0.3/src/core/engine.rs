@@ -117,7 +117,7 @@ impl CollectionEngine {
 
         // [4/8] Performance (CPU, memoria, disco)
         info!("[{}] [4/8] Recolectando performance…", device.device_id);
-        let perf_data = perf_collector::collect(&client, &profile).await;
+        let perf_data = perf_collector::collect(&client, &profile, &sys_object_id).await;
 
         // [5/8] Interfaces de red
         info!("[{}] [5/8] Recolectando interfaces…", device.device_id);
@@ -129,7 +129,7 @@ impl CollectionEngine {
 
         // [7/8] Datos específicos del vendor
         info!("[{}] [7/8] Recolectando datos del vendor…", device.device_id);
-        let vendor_data = vendor_collector::collect(&client, &profile).await;
+        let vendor_data = vendor_collector::collect(&client, &profile, &sys_object_id).await;
 
         // Contar interfaces de red
         let total_interfaces = network_data.get("interfaces")

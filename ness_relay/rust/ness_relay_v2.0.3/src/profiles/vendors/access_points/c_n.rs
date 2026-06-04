@@ -30,7 +30,7 @@ impl DeviceProfile for CambiumProfile {
     fn vendor_display_name(&self) -> &str { "Cambium Networks" }
     fn device_type(&self) -> &str { "ap" }
 
-    fn get_cpu_oids(&self) -> HashMap<String, String> {
+    fn get_cpu_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         // CAMBIUM-MIB: CPU usage en porcentaje
         m.insert("cambiumCpuUsage".into(),  "1.3.6.1.4.1.17713.22.1.1.1.4.0".into());
@@ -39,7 +39,7 @@ impl DeviceProfile for CambiumProfile {
         m
     }
 
-    fn get_memory_oids(&self) -> HashMap<String, String> {
+    fn get_memory_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         // CAMBIUM-MIB: memoria en KB
         m.insert("cambiumMemTotal".into(), "1.3.6.1.4.1.17713.22.1.1.1.5.0".into());
@@ -47,7 +47,7 @@ impl DeviceProfile for CambiumProfile {
         m
     }
 
-    fn get_disk_oids(&self) -> HashMap<String, String> {
+    fn get_disk_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         m.insert("hrStorageTable".into(),            "1.3.6.1.2.1.25.2.3".into());
         m.insert("hrStorageDescr".into(),            "1.3.6.1.2.1.25.2.3.1.3".into());
@@ -57,7 +57,7 @@ impl DeviceProfile for CambiumProfile {
         m
     }
 
-    fn get_vendor_oids(&self) -> HashMap<String, String> {
+    fn get_vendor_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         // Paridad de OIDs con Python (migración completa)
         m.insert("py_migrated_oid_01".into(), "1.2.840.10036.1.1.1.1".into());
