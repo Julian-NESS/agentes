@@ -1106,6 +1106,7 @@ fi
 if [[ -z "$CONFIG_FILE" && -n "$NESS_DEVICES_FILE_URL" ]]; then
     CONFIG_FILE="$NESS_DEVICES_FILE_URL"
     SILENT_MODE=true
+    GUIDED_MODE=true
     log_message "INFO" "Configuración de dispositivos obtenida desde NESS_DEVICES_FILE_URL"
 fi
 
