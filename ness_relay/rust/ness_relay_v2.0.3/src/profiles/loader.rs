@@ -85,8 +85,8 @@ impl ProfileLoader {
 
         // --- Switches ---
         let ubnt:        Arc<dyn DeviceProfile> = Arc::new(UbntProfile::new());
-        let huawei:      Arc<dyn DeviceProfile> = Arc::new(HuaweiProfile);
-        let tp_link:     Arc<dyn DeviceProfile> = Arc::new(TpLinkProfile);
+        let huawei:      Arc<dyn DeviceProfile> = Arc::new(HuaweiProfile::new());
+        let tp_link:     Arc<dyn DeviceProfile> = Arc::new(TpLinkProfile::new());
         let dell:        Arc<dyn DeviceProfile> = Arc::new(DellProfile);
         let datacomm:    Arc<dyn DeviceProfile> = Arc::new(DatacomProfile);
         let aruba:       Arc<dyn DeviceProfile> = Arc::new(ArubaProfile::new());
@@ -153,8 +153,10 @@ impl ProfileLoader {
             aruba,         // OID 11.2.3.7 / 14823 — Aruba/HPE
             extreme,       // OID 1916 — Extreme Networks
             cambium,
-            // Switches sin OID enterprise registrado:
-            // huawei, tp_link, dell, datacomm — se detectan por sysDescr
+            // Switches con OID enterprise registrado (detección exacta):
+            huawei,        // OID 2011 — Huawei VRP
+            tp_link,       // OID 11863 — TP-Link JetStream / TL-SG
+            // dell y datacomm se detectan por sysDescr (no tienen OID propio)
         ];
     }
 
