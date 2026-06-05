@@ -39,7 +39,7 @@ impl DeviceProfile for PfSenseProfile {
     fn vendor_display_name(&self) -> &str { "pfSense (FreeBSD)" }
     fn device_type(&self) -> &str { "firewall" }
 
-    fn get_cpu_oids(&self) -> HashMap<String, String> {
+    fn get_cpu_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         // UCD-SNMP-MIB: indicadores de carga
         m.insert("ssUserProc".into(),   "1.3.6.1.4.1.2021.11.9.0".into());
@@ -53,7 +53,7 @@ impl DeviceProfile for PfSenseProfile {
         m
     }
 
-    fn get_memory_oids(&self) -> HashMap<String, String> {
+    fn get_memory_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         // UCD-SNMP-MIB: memoria en KB
         m.insert("memTotalReal".into(),  "1.3.6.1.4.1.2021.4.5.0".into());
@@ -66,7 +66,7 @@ impl DeviceProfile for PfSenseProfile {
         m
     }
 
-    fn get_disk_oids(&self) -> HashMap<String, String> {
+    fn get_disk_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         // UCD-SNMP-MIB dskTable
         m.insert("dskTable".into(),      "1.3.6.1.4.1.2021.9".into());
@@ -79,7 +79,7 @@ impl DeviceProfile for PfSenseProfile {
         m
     }
 
-    fn get_vendor_oids(&self) -> HashMap<String, String> {
+    fn get_vendor_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         // PF-MIB: estados de firewall (pfSense specific)
         m.insert("pfStateCount".into(),    "1.3.6.1.4.1.12325.1.200.1.3.1.0".into());

@@ -29,14 +29,14 @@ impl DeviceProfile for FortinetProfile {
     fn vendor_display_name(&self) -> &str { "Fortinet FortiGate" }
     fn device_type(&self) -> &str { "firewall" }
 
-    fn get_cpu_oids(&self) -> HashMap<String, String> {
+    fn get_cpu_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         // FORTINET-FORTIGATE-MIB: fgSysCpuUsage = uso total de CPU en %
         m.insert("fgSysCpuUsage".into(), "1.3.6.1.4.1.12356.101.4.1.3.0".into());
         m
     }
 
-    fn get_memory_oids(&self) -> HashMap<String, String> {
+    fn get_memory_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         // FORTINET-FORTIGATE-MIB: memoria
         m.insert("fgSysMemUsage".into(),    "1.3.6.1.4.1.12356.101.4.1.4.0".into()); // % de uso
@@ -44,7 +44,7 @@ impl DeviceProfile for FortinetProfile {
         m
     }
 
-    fn get_disk_oids(&self) -> HashMap<String, String> {
+    fn get_disk_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         // FORTINET-FORTIGATE-MIB: disco en MB
         m.insert("fgSysDiskUsage".into(),    "1.3.6.1.4.1.12356.101.4.1.6.0".into()); // usado MB
@@ -52,7 +52,7 @@ impl DeviceProfile for FortinetProfile {
         m
     }
 
-    fn get_vendor_oids(&self) -> HashMap<String, String> {
+    fn get_vendor_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
         // Paridad de OIDs con Python (migración completa)
         m.insert("py_migrated_oid_01".into(), "1.3.6.1.2.1.2.2.1.10".into());

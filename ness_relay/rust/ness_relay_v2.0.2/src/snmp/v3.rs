@@ -489,7 +489,18 @@ pub fn decrypt_aes256(
 // PRIVACIDAD USM - DES-CBC (RFC 3414 §8)
 // ==============================================================================
 
+use std::sync::atomic::{AtomicU32, Ordering};
+/// Contador monotónico para el salt DES (RFC 3414 §8.3.1 exige unicidad del salt)
+static DES_SALT_COUNTER: AtomicU32 = AtomicU32::new(1);
+
 /// Cifra datos con DES-CBC para SNMPv3 privacidad (legacy).
+///
+/// Implementación según RFC 3414 §8.3.1:
+///   - desKey = primeros 8 bytes de la clave localizada
+///   - preIV  = bytes 8..15 de la clave localizada
+///   - salt   = engineBoots(4 BE) || counter_monotónico(4 BE)
+///   - IV     = salt XOR preIV
+///   - priv_param enviado = salt (8 bytes)
 pub fn encrypt_des(
     priv_key: &[u8],
     engine_boots: u32,
@@ -500,39 +511,45 @@ pub fn encrypt_des(
     use des::Des;
     type DesCbc = CbcEncryptor<Des>;
 
-    let key = &priv_key[..8.min(priv_key.len())];
-    if key.len() < 8 {
-        return Err(anyhow!("DES key too short"));
+    if priv_key.len() < 16 {
+        return Err(anyhow!("DES priv_key demasiado corta (se necesitan ≥16 bytes)"));
     }
 
-    // Salt = preIV XOR engineBoots+engineTime
-    let pre_iv = &priv_key[8..16.min(priv_key.len())];
+    let des_key = &priv_key[..8];
+    let pre_iv  = &priv_key[8..16];
+
+    // RFC 3414 §8.3.1: salt = engineBoots(4 BE) || counter_monotónico(4 BE)
+    // El counter sube en cada envío para garantizar unicidad del IV.
+    let counter = DES_SALT_COUNTER.fetch_add(1, Ordering::Relaxed);
     let mut salt = [0u8; 8];
-    if pre_iv.len() >= 8 {
-        salt.copy_from_slice(&pre_iv[..8]);
-    }
-    // XOR con boots (4 bytes) + random (4 bytes)
-    let boots_bytes = engine_boots.to_be_bytes();
-    for i in 0..4 {
-        salt[i] ^= boots_bytes[i];
+    salt[..4].copy_from_slice(&engine_boots.to_be_bytes());
+    salt[4..].copy_from_slice(&counter.to_be_bytes());
+
+    // IV = salt XOR preIV (RFC 3414 §8.3.1.1)
+    let mut iv = [0u8; 8];
+    for i in 0..8 {
+        iv[i] = salt[i] ^ pre_iv[i];
     }
 
-    // DES requires 8-byte blocks — pad data
+    // DES requiere bloques de 8 bytes — padding con ceros
     let padded_len = ((data.len() + 7) / 8) * 8;
     let mut padded = vec![0u8; padded_len];
     padded[..data.len()].copy_from_slice(data);
 
     let mut key_arr = [0u8; 8];
-    key_arr.copy_from_slice(&key[..8]);
+    key_arr.copy_from_slice(des_key);
 
-    let mut cipher = DesCbc::new(&key_arr.into(), &salt.into());
-    // encrypt_padded_vec_mut con NoPadding retorna Vec<u8> directamente
+    let mut cipher = DesCbc::new(&key_arr.into(), &iv.into());
     let ciphertext = cipher.encrypt_padded_vec_mut::<cipher::block_padding::NoPadding>(&padded);
 
+    // priv_param enviado en el mensaje = salt (no el IV), según RFC 3414 §8.3.1
     Ok((ciphertext, salt.to_vec()))
 }
 
-/// Descifra datos DES-CBC de SNMPv3.
+/// Descifra datos DES-CBC de SNMPv3 (RFC 3414 §8.2.4).
+///   - desKey  = primeros 8 bytes de la clave localizada
+///   - preIV   = bytes 8..15 de la clave localizada
+///   - IV      = priv_param(salt) XOR preIV
 pub fn decrypt_des(
     priv_key: &[u8],
     priv_param: &[u8],
@@ -543,17 +560,26 @@ pub fn decrypt_des(
     use des::Des;
     type DesCbcDec = CbcDecryptor<Des>;
 
-    let key = &priv_key[..8.min(priv_key.len())];
-    if key.len() < 8 || priv_param.len() < 8 {
-        return Err(anyhow!("DES decrypt: invalid key or IV length"));
+    if priv_key.len() < 16 {
+        return Err(anyhow!("DES priv_key demasiado corta (se necesitan ≥16 bytes)"));
+    }
+    if priv_param.len() < 8 {
+        return Err(anyhow!("DES decrypt: priv_param (salt) demasiado corto"));
+    }
+
+    let des_key = &priv_key[..8];
+    let pre_iv  = &priv_key[8..16];
+
+    // IV = salt XOR preIV (RFC 3414 §8.2.4, simétrico al cifrado)
+    let mut iv = [0u8; 8];
+    for i in 0..8 {
+        iv[i] = priv_param[i] ^ pre_iv[i];
     }
 
     let mut key_arr = [0u8; 8];
-    key_arr.copy_from_slice(&key[..8]);
-    let mut iv_arr = [0u8; 8];
-    iv_arr.copy_from_slice(&priv_param[..8]);
+    key_arr.copy_from_slice(des_key);
 
-    let cipher = DesCbcDec::new(&key_arr.into(), &iv_arr.into());
+    let cipher = DesCbcDec::new(&key_arr.into(), &iv.into());
     let plaintext = cipher
         .decrypt_padded_vec_mut::<cipher::block_padding::NoPadding>(ciphertext)
         .map_err(|e| anyhow!("DES decrypt error: {:?}", e))?;

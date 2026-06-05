@@ -1,11 +1,11 @@
 // ==============================================================================
-// NESS Relay v2.0.2 — Registro de perfiles (ProfileLoader)
+// NESS Relay v2.0.3 — Registro de perfiles (ProfileLoader)
 // ==============================================================================
 //
 // Perfiles soportados:
-//   - Firewalls: pfSense, Fortinet, MikroTik FW
-//   - Routers:   MikroTik RouterOS, Cisco
-//   - Switches:  UBNT, Huawei, TP-Link, Dell, Datacom
+//   - Firewalls: pfSense, Fortinet, MikroTik FW, Sophos, Check Point, Palo Alto
+//   - Routers:   MikroTik RouterOS, Cisco, Juniper MX/SRX
+//   - Switches:  UBNT, Huawei, TP-Link, Dell, Datacom, Aruba, Juniper EX/QFX, Extreme
 //   - APs:       Cambium Networks
 //   - Impresoras (genérico): detección por OID/sysDescr
 //   - Fallback:  Generic (métricas básicas SNMP estándar)
@@ -25,14 +25,21 @@ use super::vendors::{
     firewalls::fortinet::FortinetProfile,
     firewalls::mikrotik_fw::MikroTikFwProfile,
     firewalls::pfsense::PfSenseProfile,
+    firewalls::sophos::SophosProfile,
+    firewalls::checkpoint::CheckPointProfile,
+    firewalls::palo_alto::PaloAltoProfile,
     routers::cisco::CiscoProfile,
     routers::mikrotik::MikroTikProfile,
+    routers::juniper_mx::JuniperMxProfile,
     shared::generic::GenericProfile,
     switches::datacomm::DatacomProfile,
     switches::dell::DellProfile,
     switches::huawei::HuaweiProfile,
     switches::tp_link::TpLinkProfile,
     switches::ubnt::UbntProfile,
+    switches::aruba::ArubaProfile,
+    switches::juniper_ex::JuniperExProfile,
+    switches::extreme::ExtremeProfile,
 };
 
 // ==============================================================================
@@ -67,17 +74,24 @@ impl ProfileLoader {
         let pfsense:     Arc<dyn DeviceProfile> = Arc::new(PfSenseProfile::new());
         let fortinet:    Arc<dyn DeviceProfile> = Arc::new(FortinetProfile::new());
         let mikrotik_fw: Arc<dyn DeviceProfile> = Arc::new(MikroTikFwProfile::new());
+        let sophos:      Arc<dyn DeviceProfile> = Arc::new(SophosProfile::new());
+        let checkpoint:  Arc<dyn DeviceProfile> = Arc::new(CheckPointProfile::new());
+        let palo_alto:   Arc<dyn DeviceProfile> = Arc::new(PaloAltoProfile::new());
 
         // --- Routers ---
         let mikrotik:    Arc<dyn DeviceProfile> = Arc::new(MikroTikProfile::new());
         let cisco:       Arc<dyn DeviceProfile> = Arc::new(CiscoProfile::new());
+        let juniper_mx:  Arc<dyn DeviceProfile> = Arc::new(JuniperMxProfile::new());
 
         // --- Switches ---
         let ubnt:        Arc<dyn DeviceProfile> = Arc::new(UbntProfile::new());
-        let huawei:      Arc<dyn DeviceProfile> = Arc::new(HuaweiProfile);
-        let tp_link:     Arc<dyn DeviceProfile> = Arc::new(TpLinkProfile);
+        let huawei:      Arc<dyn DeviceProfile> = Arc::new(HuaweiProfile::new());
+        let tp_link:     Arc<dyn DeviceProfile> = Arc::new(TpLinkProfile::new());
         let dell:        Arc<dyn DeviceProfile> = Arc::new(DellProfile);
         let datacomm:    Arc<dyn DeviceProfile> = Arc::new(DatacomProfile);
+        let aruba:       Arc<dyn DeviceProfile> = Arc::new(ArubaProfile::new());
+        let juniper_ex:  Arc<dyn DeviceProfile> = Arc::new(JuniperExProfile::new());
+        let extreme:     Arc<dyn DeviceProfile> = Arc::new(ExtremeProfile::new());
 
         // --- APs ---
         let cambium:     Arc<dyn DeviceProfile> = Arc::new(CambiumProfile::new());
@@ -94,13 +108,20 @@ impl ProfileLoader {
         self.register("pfsense",     pfsense.clone());
         self.register("fortinet",    fortinet.clone());
         self.register("mikrotik_fw", mikrotik_fw.clone());
+        self.register("sophos",      sophos.clone());
+        self.register("checkpoint",  checkpoint.clone());
+        self.register("palo_alto",   palo_alto.clone());
         self.register("mikrotik",    mikrotik.clone());
         self.register("cisco",       cisco.clone());
+        self.register("juniper_mx",  juniper_mx.clone());
         self.register("ubnt",        ubnt.clone());
         self.register("huawei",      huawei.clone());
         self.register("tp_link",     tp_link.clone());
         self.register("dell",        dell.clone());
         self.register("datacomm",    datacomm.clone());
+        self.register("aruba",       aruba.clone());
+        self.register("juniper_ex",  juniper_ex.clone());
+        self.register("extreme",     extreme.clone());
         self.register("c_n",         cambium.clone());
         self.register("generic",     generic.clone());
         self.register("firewall",    generic_firewall.clone());
@@ -114,16 +135,28 @@ impl ProfileLoader {
         // ambos comparten el OID enterprise 1.3.6.1.4.1.14988.
         // `auto_detect` retorna "mikrotik" por defecto y `resolve_profile`
         // decide si promover a "mikrotik_fw" según contexto del fallback.
+        //
+        // Juniper EX/QFX va antes que Juniper MX/SRX porque EX/QFX usa
+        // subárboles más específicos (1.51.*, 1.62.*) que el MX catchall.
         self.detection_order = vec![
             pfsense,
             fortinet,
+            sophos,        // OID 2604 — Sophos
+            checkpoint,    // OID 2620 — Check Point
+            palo_alto,     // OID 25461 — Palo Alto
             mikrotik,      // OID 14988 — router por defecto
             // mikrotik_fw se omite del auto-detect: mismo OID que mikrotik
             cisco,
+            juniper_ex,    // OID 2636.1.51/62 — Juniper EX/QFX (antes que MX)
+            juniper_mx,    // OID 2636 (catchall) — Juniper MX/SRX
             ubnt,
+            aruba,         // OID 11.2.3.7 / 14823 — Aruba/HPE
+            extreme,       // OID 1916 — Extreme Networks
             cambium,
-            // Switches sin OID enterprise registrado:
-            // huawei, tp_link, dell, datacomm — se detectan por sysDescr
+            // Switches con OID enterprise registrado (detección exacta):
+            huawei,        // OID 2011 — Huawei VRP
+            tp_link,       // OID 11863 — TP-Link JetStream / TL-SG
+            // dell y datacomm se detectan por sysDescr (no tienen OID propio)
         ];
     }
 
@@ -302,12 +335,26 @@ impl ProfileLoader {
             Some("pfsense")
         } else if normalized_descr.contains("fortinet") || normalized_descr.contains("fortigate") {
             Some("fortinet")
+        } else if normalized_descr.contains("sophos") || normalized_descr.contains("sfos") || normalized_descr.contains("cyberoam") {
+            Some("sophos")
+        } else if normalized_descr.contains("check point") || normalized_descr.contains("checkpoint") || normalized_descr.contains("gaia") {
+            Some("checkpoint")
+        } else if normalized_descr.contains("palo alto") || normalized_descr.contains("pan-os") || normalized_descr.contains("panos") {
+            Some("palo_alto")
         } else if normalized_descr.contains("mikrotik") || normalized_descr.contains("routeros") {
             Some("mikrotik")
         } else if normalized_descr.contains("ubiquiti") || normalized_descr.contains("ubnt") || normalized_descr.contains("edgeswitch") {
             Some("ubnt")
         } else if normalized_descr.contains("cisco") || normalized_descr.contains("ios") {
             Some("cisco")
+        } else if normalized_descr.contains("juniper") || normalized_descr.contains("junos") {
+            // Para sysDescr genérico "Juniper" asignamos MX/SRX (router);
+            // la detección por sysObjectID ya diferencia EX/QFX.
+            Some("juniper_mx")
+        } else if normalized_descr.contains("aruba") || normalized_descr.contains("procurve") || normalized_descr.contains("hpe switch") {
+            Some("aruba")
+        } else if normalized_descr.contains("extreme") || normalized_descr.contains("extremexos") || normalized_descr.contains("exos") {
+            Some("extreme")
         } else if normalized_descr.contains("huawei") || normalized_descr.contains("vrp") {
             Some("huawei")
         } else if normalized_descr.contains("tp-link") || normalized_descr.contains("tplink") {

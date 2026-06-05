@@ -38,19 +38,19 @@ impl DeviceProfile for CiscoProfile {
     fn vendor_display_name(&self) -> &str { "Cisco" }
     fn device_type(&self) -> &str { "router" }
 
-    fn get_cpu_oids(&self) -> HashMap<String, String> {
-        // TODO Phase 2: CISCO-PROCESS-MIB
-        // "cpmCPUTotal5minRev" => "1.3.6.1.4.1.9.9.109.1.1.1.1.8.1"
-        self.generic.get_cpu_oids()
+    fn get_cpu_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
+        // Cisco genérico usa HOST-RESOURCES-MIB
+        // TODO: MIBs específicos de Cisco IOS
+        self.generic.get_cpu_oids(_sys_object_id)
     }
 
-    fn get_memory_oids(&self) -> HashMap<String, String> {
-        // TODO Phase 2: CISCO-MEMORY-POOL-MIB
-        self.generic.get_memory_oids()
+    fn get_memory_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
+        // Cisco genérico usa HOST-RESOURCES-MIB
+        self.generic.get_memory_oids(_sys_object_id)
     }
 
-    fn get_disk_oids(&self) -> HashMap<String, String> {
-        self.generic.get_disk_oids()
+    fn get_disk_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
+        self.generic.get_disk_oids(_sys_object_id)
     }
 
     fn normalize_cpu_data(&self, raw: &HashMap<String, SnmpValue>) -> serde_json::Value {

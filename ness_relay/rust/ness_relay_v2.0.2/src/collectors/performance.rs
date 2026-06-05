@@ -22,6 +22,7 @@ use crate::utils::helpers::now_iso;
 pub async fn collect(
     client: &SnmpClient,
     profile: &Arc<dyn DeviceProfile>,
+    sys_object_id: &str,
 ) -> serde_json::Value {
     let mut result = serde_json::Map::new();
     result.insert("collection_timestamp".into(), json!(now_iso()));
@@ -29,7 +30,7 @@ pub async fn collect(
     // -----------------------------------------------------------------------
     // CPU
     // -----------------------------------------------------------------------
-    let cpu_oids = profile.get_cpu_oids();
+    let cpu_oids = profile.get_cpu_oids(sys_object_id);
     let mut cpu_raw: HashMap<String, SnmpValue> = HashMap::new();
 
     for (name, oid) in &cpu_oids {
@@ -57,7 +58,7 @@ pub async fn collect(
     // -----------------------------------------------------------------------
     // Memoria
     // -----------------------------------------------------------------------
-    let mem_oids = profile.get_memory_oids();
+    let mem_oids = profile.get_memory_oids(sys_object_id);
     let mut mem_raw: HashMap<String, SnmpValue> = HashMap::new();
 
     for (name, oid) in &mem_oids {
@@ -80,7 +81,7 @@ pub async fn collect(
     // -----------------------------------------------------------------------
     // Disco (tabla hrStorageTable u equivalente, o OIDs escalares)
     // -----------------------------------------------------------------------
-    let disk_oids = profile.get_disk_oids();
+    let disk_oids = profile.get_disk_oids(sys_object_id);
     let mut disk_tables: HashMap<String, HashMap<String, SnmpValue>> = HashMap::new();
 
     // Detectar si hay un OID de tabla (clave que contiene "Table")
