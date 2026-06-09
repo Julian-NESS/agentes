@@ -5,7 +5,7 @@
   "installer": {
     "url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/2.0.2/install_relay.sh",
     "fileName": "install_relay.sh",
-    "sha256": "db18e4d53ce6260f1b6d2400a75306ae835737acd5ee09895708fc2e41312dee"
+    "sha256": "b499d893d409e404c0b74891f4d84bc0cb9a9d1459fa5b07b604898cb77ddc2d"
   },
   "variants": [
     {
@@ -14,7 +14,7 @@
       "binary": {
         "url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/2.0.2/ness-relay-x86_64",
         "fileName": "ness-relay-x86_64",
-        "sha256": "d9def83faad8d3f90ab5bb97b10b6313660efc73804f3957c14bd6e8cc98497a"
+        "sha256": "0e247878980a99bc077754c9e8033f794292ddbdfae23b6091c293ec3699e693"
       }
     },
     {
@@ -28,6 +28,7 @@
     }
   ],
   "changelog": [
+    
     "NESS Relay v2.0.2 — Multi-arquitectura (x86_64 + aarch64)",
     "Soporte para instalación guiada desde frontend UI",
     "Distribución directa de binarios (sin ZIP)",

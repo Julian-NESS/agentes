@@ -1391,7 +1391,17 @@ if [[ "$SILENT_MODE" != "true" && -f "$AUTOCOMPLETE_FILE" ]]; then
 fi
 
 # Selección de fabricantes (flujo normal, solo si no se usó autocompletado)
-if [[ "$UPDATE_ONLY_MODE" == "true" ]]; then
+# Prioridad de carga del connection.config (de mayor a menor):
+#   1. NESS_DEVICES_FILE_URL (URL firmada del bulk upload) — gana sobre la config existente
+#   2. --update-only con config previa
+#   3. Autocompletado del Smart Tester
+#   4. Variables de instalación guiada (modo single)
+#   5. --silent con --config-file
+if [[ -n "$NESS_DEVICES_FILE_URL" && -n "$CONFIG_FILE" ]]; then
+    # Bulk upload: la URL firmada siempre tiene prioridad absoluta.
+    log_message "INFO" "Cargando connection.config desde URL firmada (bulk upload)"
+    load_config_file "$CONFIG_FILE"
+elif [[ "$UPDATE_ONLY_MODE" == "true" ]]; then
     log_message "INFO" "Modo actualización (--update-only): usando configuración existente"
     local_existing_config="$EXISTING_INSTALL_DIR/configs/connection.config"
     if [[ -f "$local_existing_config" ]]; then
