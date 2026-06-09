@@ -310,8 +310,18 @@ PY
         /"arch"[[:space:]]*:[[:space:]]*"/ {
             if ($0 ~ arch) { capture=1 }
         }
-        capture && url == "" && /"url"[[:space:]]*:/ { if (match($0, /"url"[[:space:]]*:[[:space:]]*"([^"]+)"/, m)) url=m[1] }
-        capture && sha == "" && /"sha256"[[:space:]]*:/ { if (match($0, /"sha256"[[:space:]]*:[[:space:]]*"([^"]+)"/, m)) sha=m[1] }
+        capture && url == "" && /"url"[[:space:]]*:/ {
+            split($0, parts, "\"")
+            for (i=1; i<=length(parts); i++) {
+                if (parts[i] == "url") { url = parts[i+2] }
+            }
+        }
+        capture && sha == "" && /"sha256"[[:space:]]*:/ {
+            split($0, parts, "\"")
+            for (i=1; i<=length(parts); i++) {
+                if (parts[i] == "sha256") { sha = parts[i+2] }
+            }
+        }
         capture && url != "" && sha != "" { print url; print sha; exit 0 }
     ' "$metadata_file"
 }
@@ -422,8 +432,7 @@ download_binary_from_metadata() {
 
     if [[ ${#variant_info[@]} -lt 2 ]]; then
         log_message "ERROR" "No existe variante para arquitectura '$host_arch' en latest.json"
-        log_message "ERROR" "Contenido de latest.json (primeras 200 líneas):"
-        sed -n '1,200p' "$metadata_file" | sed 's/^/    /'
+        # Contenido de latest.json oculto por motivos de seguridad
         return 1
     fi
 
