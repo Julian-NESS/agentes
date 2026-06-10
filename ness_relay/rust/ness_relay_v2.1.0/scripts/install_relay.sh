@@ -1691,6 +1691,7 @@ fi
 # INSTALAR BINARIO
 ###############################################################################
 log_message "PROGRESS" "Copiando ejecutable..."
+rm -f "$INSTALL_DIR/executables/$INSTALLED_BINARY_NAME"
 cp "${BINARY_SOURCE}" "$INSTALL_DIR/executables/$INSTALLED_BINARY_NAME"
 chmod +x "$INSTALL_DIR/executables/$INSTALLED_BINARY_NAME"
 log_message "SUCCESS" "Ejecutable instalado en: $INSTALL_DIR/executables/$INSTALLED_BINARY_NAME"
@@ -1699,6 +1700,7 @@ log_message "SUCCESS" "Ejecutable instalado en: $INSTALL_DIR/executables/$INSTAL
 SCRIPT_SOURCE="${BASH_SOURCE[0]}"
 if [[ -f "$SCRIPT_SOURCE" && "$SCRIPT_SOURCE" != "$INSTALL_DIR/executables/install_relay.sh" ]]; then
     log_message "PROGRESS" "Actualizando script de instalación..."
+    rm -f "$INSTALL_DIR/executables/install_relay.sh"
     cp "$SCRIPT_SOURCE" "$INSTALL_DIR/executables/install_relay.sh"
     chmod +x "$INSTALL_DIR/executables/install_relay.sh"
     log_message "SUCCESS" "Script de instalación actualizado en: $INSTALL_DIR/executables/install_relay.sh"

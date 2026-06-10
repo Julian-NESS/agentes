@@ -5,7 +5,7 @@
   "installer": {
     "url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/2.1.0/install_relay.sh",
     "fileName": "install_relay.sh",
-    "sha256": "5793a5316b7ad20e7298528da9259f646a27afde1347c46284229acd5a2dee57"
+    "sha256": "1fa14340f4760d9e0f97d12054b1199c0c89a153448f97075f80d1523a53ec08"
   },
   "variants": [
     {

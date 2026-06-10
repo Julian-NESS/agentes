@@ -310,8 +310,18 @@ PY
         /"arch"[[:space:]]*:[[:space:]]*"/ {
             if ($0 ~ arch) { capture=1 }
         }
-        capture && url == "" && /"url"[[:space:]]*:/ { if (match($0, /"url"[[:space:]]*:[[:space:]]*"([^"]+)"/, m)) url=m[1] }
-        capture && sha == "" && /"sha256"[[:space:]]*:/ { if (match($0, /"sha256"[[:space:]]*:[[:space:]]*"([^"]+)"/, m)) sha=m[1] }
+        capture && url == "" && /"url"[[:space:]]*:/ {
+            split($0, parts, "\"")
+            for (i=1; i<=length(parts); i++) {
+                if (parts[i] == "url") { url = parts[i+2] }
+            }
+        }
+        capture && sha == "" && /"sha256"[[:space:]]*:/ {
+            split($0, parts, "\"")
+            for (i=1; i<=length(parts); i++) {
+                if (parts[i] == "sha256") { sha = parts[i+2] }
+            }
+        }
         capture && url != "" && sha != "" { print url; print sha; exit 0 }
     ' "$metadata_file"
 }
@@ -422,8 +432,7 @@ download_binary_from_metadata() {
 
     if [[ ${#variant_info[@]} -lt 2 ]]; then
         log_message "ERROR" "No existe variante para arquitectura '$host_arch' en latest.json"
-        log_message "ERROR" "Contenido de latest.json (primeras 200 líneas):"
-        sed -n '1,200p' "$metadata_file" | sed 's/^/    /'
+        # Contenido de latest.json oculto por motivos de seguridad
         return 1
     fi
 
@@ -1391,7 +1400,17 @@ if [[ "$SILENT_MODE" != "true" && -f "$AUTOCOMPLETE_FILE" ]]; then
 fi
 
 # Selección de fabricantes (flujo normal, solo si no se usó autocompletado)
-if [[ "$UPDATE_ONLY_MODE" == "true" ]]; then
+# Prioridad de carga del connection.config (de mayor a menor):
+#   1. NESS_DEVICES_FILE_URL (URL firmada del bulk upload) — gana sobre la config existente
+#   2. --update-only con config previa
+#   3. Autocompletado del Smart Tester
+#   4. Variables de instalación guiada (modo single)
+#   5. --silent con --config-file
+if [[ -n "$NESS_DEVICES_FILE_URL" && -n "$CONFIG_FILE" ]]; then
+    # Bulk upload: la URL firmada siempre tiene prioridad absoluta.
+    log_message "INFO" "Cargando connection.config desde URL firmada (bulk upload)"
+    load_config_file "$CONFIG_FILE"
+elif [[ "$UPDATE_ONLY_MODE" == "true" ]]; then
     log_message "INFO" "Modo actualización (--update-only): usando configuración existente"
     local_existing_config="$EXISTING_INSTALL_DIR/configs/connection.config"
     if [[ -f "$local_existing_config" ]]; then
@@ -1672,6 +1691,7 @@ fi
 # INSTALAR BINARIO
 ###############################################################################
 log_message "PROGRESS" "Copiando ejecutable..."
+rm -f "$INSTALL_DIR/executables/$INSTALLED_BINARY_NAME"
 cp "${BINARY_SOURCE}" "$INSTALL_DIR/executables/$INSTALLED_BINARY_NAME"
 chmod +x "$INSTALL_DIR/executables/$INSTALLED_BINARY_NAME"
 log_message "SUCCESS" "Ejecutable instalado en: $INSTALL_DIR/executables/$INSTALLED_BINARY_NAME"
@@ -1680,6 +1700,7 @@ log_message "SUCCESS" "Ejecutable instalado en: $INSTALL_DIR/executables/$INSTAL
 SCRIPT_SOURCE="${BASH_SOURCE[0]}"
 if [[ -f "$SCRIPT_SOURCE" && "$SCRIPT_SOURCE" != "$INSTALL_DIR/executables/install_relay.sh" ]]; then
     log_message "PROGRESS" "Actualizando script de instalación..."
+    rm -f "$INSTALL_DIR/executables/install_relay.sh"
     cp "$SCRIPT_SOURCE" "$INSTALL_DIR/executables/install_relay.sh"
     chmod +x "$INSTALL_DIR/executables/install_relay.sh"
     log_message "SUCCESS" "Script de instalación actualizado en: $INSTALL_DIR/executables/install_relay.sh"
