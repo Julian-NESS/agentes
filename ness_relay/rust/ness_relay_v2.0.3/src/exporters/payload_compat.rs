@@ -40,20 +40,37 @@ fn transform_system(payload: &mut Value) {
         }
     }
 
-    // Extraer versión de firmware desde sys_descr si es posible
+    // Extraer versión de firmware desde sys_descr si es posible de forma robusta
     if let Some(sys_descr) = system.get("sys_descr").and_then(|v| v.as_str()) {
-        if let Some(idx) = sys_descr.find("Version ") {
-            let start = idx + 8;
-            let end = sys_descr[start..].find(|c: char| c == '\n' || c == '\r' || c == ',' || c == ' ').unwrap_or(sys_descr.len() - start);
-            let version_str = &sys_descr[start..start + end];
-            basic_info.insert("firmware_version".into(), json!(version_str));
-            basic_info.insert("os_version".into(), json!(version_str));
-        } else if let Some(idx) = sys_descr.find("Software Version ") {
+        let descr_lower = sys_descr.to_lowercase();
+        let mut version_str = "";
+        
+        if let Some(idx) = descr_lower.find("software version ") {
             let start = idx + 17;
-            let end = sys_descr[start..].find(|c: char| c == '\n' || c == '\r' || c == ',' || c == ' ').unwrap_or(sys_descr.len() - start);
-            let version_str = &sys_descr[start..start + end];
+            version_str = sys_descr[start..].trim_start().split(|c: char| c.is_whitespace() || c == ',').next().unwrap_or("");
+        } else if let Some(idx) = descr_lower.find("version ") {
+            let start = idx + 8;
+            version_str = sys_descr[start..].trim_start().split(|c: char| c.is_whitespace() || c == ',').next().unwrap_or("");
+        }
+        
+        if !version_str.is_empty() {
             basic_info.insert("firmware_version".into(), json!(version_str));
             basic_info.insert("os_version".into(), json!(version_str));
+        }
+    }
+
+    if !basic_info.contains_key("firmware_version") {
+        if let Some(tp_link) = payload.get("tp_link_specific") {
+            if let Some(fw) = tp_link.get("firmware_version") {
+                basic_info.insert("firmware_version".into(), fw.clone());
+                basic_info.insert("os_version".into(), fw.clone());
+            }
+        }
+        if let Some(huawei) = payload.get("huawei_specific") {
+            if let Some(fw) = huawei.get("firmware_version") {
+                basic_info.insert("firmware_version".into(), fw.clone());
+                basic_info.insert("os_version".into(), fw.clone());
+            }
         }
     }
 
