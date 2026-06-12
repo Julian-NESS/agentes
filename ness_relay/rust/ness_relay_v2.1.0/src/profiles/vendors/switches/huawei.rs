@@ -25,6 +25,7 @@ use tracing::debug;
 
 use crate::profiles::base::DeviceProfile;
 use crate::snmp::{SnmpClient, types::SnmpValue};
+use crate::utils::conversions::{bytes_to_gb, calculate_percentage};
 
 pub struct HuaweiProfile;
 
@@ -214,6 +215,28 @@ impl DeviceProfile for HuaweiProfile {
         let mut data = serde_json::Map::new();
         data.insert("vendor".into(), json!("Huawei"));
 
+        // Intentar extraer la versión del sysDescr (1.3.6.1.2.1.1.1.0)
+        let sys_descr_res = client.get("1.3.6.1.2.1.1.1.0").await;
+        if let Some(val) = sys_descr_res.value {
+            let descr = val.as_string();
+            let descr_lower = descr.to_lowercase();
+            
+            if let Some(idx) = descr_lower.find("software version ") {
+                let start = idx + 17;
+                let version_str = descr[start..].trim_start().split(|c: char| c.is_whitespace() || c == ',').next().unwrap_or("");
+                if !version_str.is_empty() {
+                    data.insert("firmware_version".into(), json!(version_str));
+                }
+            } else if let Some(idx) = descr_lower.find("version ") {
+                let start = idx + 8;
+                let version_str = descr[start..].trim_start().split(|c: char| c.is_whitespace() || c == ',').next().unwrap_or("");
+                if !version_str.is_empty() {
+                    data.insert("firmware_version".into(), json!(version_str));
+                }
+            }
+        }
+
+
         // --- Temperatura por slot (hwEntityTemperature) ---
         let (temp_entries, _) = client
             .bulk("1.3.6.1.4.1.2011.5.25.31.1.1.1.1.11", 32)
@@ -249,6 +272,41 @@ impl DeviceProfile for HuaweiProfile {
                 data.insert("temperature_status".into(), json!(temp_status));
             }
         }
+        
+        // --- Almacenamiento Flash Real (hwFlashPartitionTable) ---
+        let mut flash_total_bytes = 0.0;
+        let mut flash_free_bytes = 0.0;
+        
+        // hwFlhParSize
+        let mut flash_res = client.get("1.3.6.1.4.1.2011.6.9.1.1.4.1.1.4.1.1").await;
+        if let Some(val) = flash_res.value {
+            if let Some(total) = val.as_f64() {
+                flash_total_bytes = total;
+            } else if let Some(total) = val.as_i64() {
+                flash_total_bytes = total as f64;
+            }
+        }
+        
+        // hwFlhParFreeSize
+        let mut flash_free_res = client.get("1.3.6.1.4.1.2011.6.9.1.1.4.1.1.5.1.1").await;
+        if let Some(val) = flash_free_res.value {
+            if let Some(free) = val.as_f64() {
+                flash_free_bytes = free;
+            } else if let Some(free) = val.as_i64() {
+                flash_free_bytes = free as f64;
+            }
+        }
+        
+        if flash_total_bytes > 0.0 {
+            let used_bytes = (flash_total_bytes - flash_free_bytes).max(0.0);
+            let pct = calculate_percentage(used_bytes, flash_total_bytes);
+            
+            data.insert("flash_total_gb".into(), json!(bytes_to_gb(flash_total_bytes)));
+            data.insert("flash_used_gb".into(), json!(bytes_to_gb(used_bytes)));
+            data.insert("flash_free_gb".into(), json!(bytes_to_gb(flash_free_bytes)));
+            data.insert("flash_usage_percent".into(), json!(pct));
+        }
+
 
         // --- CPU detallada por slot (hwEntityCpuUsage) ---
         let (cpu_entries, _) = client
@@ -366,6 +424,35 @@ impl DeviceProfile for HuaweiProfile {
                     if let Some(t) = mem_total { mem.insert("mem_total_mb".into(), t); }
                     if let Some(u) = mem_used  { mem.insert("mem_used_mb".into(), u); }
                     if let Some(f) = mem_free  { mem.insert("mem_free_mb".into(), f); }
+                }
+                
+                // Promover disco Flash si no hay discos estándar descubiertos
+                if let Some(total_gb) = vendor.get("flash_total_gb").and_then(|v| v.as_f64()) {
+                    let used_gb = vendor.get("flash_used_gb").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let free_gb = vendor.get("flash_free_gb").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let pct = vendor.get("flash_usage_percent").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    
+                    let mut is_empty = false;
+                    if let Some(disk) = perf.get("disk").and_then(|v| v.as_object()) {
+                        is_empty = disk.is_empty();
+                    } else if let Some(disks) = perf.get("disks").and_then(|v| v.as_array()) {
+                        is_empty = disks.is_empty();
+                    } else {
+                        is_empty = true; // Si no hay ni `disk` ni `disks`
+                    }
+                    
+                    if is_empty {
+                        // Lo insertamos como array, payload_compat.rs lo convertirá a diccionario
+                        perf.insert("disks".into(), json!([
+                            {
+                                "mount": "System Flash",
+                                "total_gb": total_gb,
+                                "used_gb": used_gb,
+                                "free_gb": free_gb,
+                                "usage_percent": pct
+                            }
+                        ]));
+                    }
                 }
             }
         }

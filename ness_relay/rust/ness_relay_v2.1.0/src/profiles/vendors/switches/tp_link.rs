@@ -19,6 +19,7 @@ use tracing::debug;
 
 use crate::profiles::base::DeviceProfile;
 use crate::snmp::{SnmpClient, types::SnmpValue};
+use crate::utils::conversions::{bytes_to_gb, calculate_percentage};
 
 pub struct TpLinkProfile;
 
@@ -62,7 +63,13 @@ impl DeviceProfile for TpLinkProfile {
     // Disco — TP-Link switches no exponen disco por SNMP estándar
     // -----------------------------------------------------------------------
     fn get_disk_oids(&self, _sys_object_id: &str) -> HashMap<String, String> {
-        HashMap::new()
+        let mut m = HashMap::new();
+        m.insert("hrStorageTable".into(), "1.3.6.1.2.1.25.2.3".into());
+        m.insert("hrStorageDescr".into(), "1.3.6.1.2.1.25.2.3.1.3".into());
+        m.insert("hrStorageAllocationUnits".into(), "1.3.6.1.2.1.25.2.3.1.4".into());
+        m.insert("hrStorageSize".into(),  "1.3.6.1.2.1.25.2.3.1.5".into());
+        m.insert("hrStorageUsed".into(),  "1.3.6.1.2.1.25.2.3.1.6".into());
+        m
     }
 
     // -----------------------------------------------------------------------
@@ -115,9 +122,35 @@ impl DeviceProfile for TpLinkProfile {
     // -----------------------------------------------------------------------
     fn normalize_disk_data(
         &self,
-        _raw: &HashMap<String, HashMap<String, SnmpValue>>,
+        raw: &HashMap<String, HashMap<String, SnmpValue>>,
     ) -> serde_json::Value {
-        json!([])
+        let mut disks = Vec::new();
+        for (idx, entry) in raw {
+            let descr = entry.get("hrStorageDescr")
+                .map(|v| v.as_string())
+                .unwrap_or_else(|| format!("storage-{}", idx));
+            let units = entry.get("hrStorageAllocationUnits")
+                .and_then(|v| v.as_i64()).unwrap_or(1024) as f64;
+            let size = entry.get("hrStorageSize")
+                .and_then(|v| v.as_i64()).unwrap_or(0) as f64;
+            let used = entry.get("hrStorageUsed")
+                .and_then(|v| v.as_i64()).unwrap_or(0) as f64;
+
+            let total_bytes = size * units;
+            let used_bytes  = used * units;
+            let free_bytes  = (total_bytes - used_bytes).max(0.0);
+
+            if total_bytes > 0.0 {
+                disks.push(json!({
+                    "mount": descr,
+                    "total_gb": bytes_to_gb(total_bytes),
+                    "used_gb":  bytes_to_gb(used_bytes),
+                    "free_gb":  bytes_to_gb(free_bytes),
+                    "usage_percent": calculate_percentage(used_bytes, total_bytes),
+                }));
+            }
+        }
+        json!(disks)
     }
 
     // -----------------------------------------------------------------------
@@ -126,6 +159,14 @@ impl DeviceProfile for TpLinkProfile {
     async fn collect_vendor_specific_data(&self, client: &SnmpClient) -> serde_json::Value {
         let mut data = serde_json::Map::new();
         data.insert("vendor".into(), json!("TP-Link"));
+
+        let fw_res = client.get("1.3.6.1.4.1.11863.6.1.1.6.0").await;
+        if let Some(val) = fw_res.value {
+            let s = val.as_string();
+            if !s.is_empty() {
+                data.insert("firmware_version".into(), json!(s));
+            }
+        }
 
         // 1) Intentar serie antigua (.6.1.1...)
         let mut cpu_res = client.get("1.3.6.1.4.1.11863.6.1.1.1.1.1.0").await;
@@ -189,6 +230,29 @@ impl DeviceProfile for TpLinkProfile {
                     if mem.get("mem_usage_percent").and_then(|v| v.as_f64()).unwrap_or(0.0) == 0.0 {
                         if let Some(p) = mem_pct { mem.insert("mem_usage_percent".into(), p); }
                     }
+                }
+                
+                // TP-Link no expone memoria flash por SNMP. 
+                // Insertamos un disco simulado en 0% para sobreescribir cualquier valor viejo pegado en el backend
+                let mut is_empty = false;
+                if let Some(disk) = perf.get("disk").and_then(|v| v.as_object()) {
+                    is_empty = disk.is_empty();
+                } else if let Some(disks) = perf.get("disks").and_then(|v| v.as_array()) {
+                    is_empty = disks.is_empty();
+                } else {
+                    is_empty = true;
+                }
+                
+                if is_empty {
+                    perf.insert("disks".into(), json!([
+                        {
+                            "mount": "System Flash (N/A)",
+                            "total_gb": 0.0,
+                            "used_gb": 0.0,
+                            "free_gb": 0.0,
+                            "usage_percent": 0.0
+                        }
+                    ]));
                 }
             }
         }

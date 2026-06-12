@@ -40,6 +40,40 @@ fn transform_system(payload: &mut Value) {
         }
     }
 
+    // Extraer versión de firmware desde sys_descr si es posible de forma robusta
+    if let Some(sys_descr) = system.get("sys_descr").and_then(|v| v.as_str()) {
+        let descr_lower = sys_descr.to_lowercase();
+        let mut version_str = "";
+        
+        if let Some(idx) = descr_lower.find("software version ") {
+            let start = idx + 17;
+            version_str = sys_descr[start..].trim_start().split(|c: char| c.is_whitespace() || c == ',').next().unwrap_or("");
+        } else if let Some(idx) = descr_lower.find("version ") {
+            let start = idx + 8;
+            version_str = sys_descr[start..].trim_start().split(|c: char| c.is_whitespace() || c == ',').next().unwrap_or("");
+        }
+        
+        if !version_str.is_empty() {
+            basic_info.insert("firmware_version".into(), json!(version_str));
+            basic_info.insert("os_version".into(), json!(version_str));
+        }
+    }
+
+    if !basic_info.contains_key("firmware_version") {
+        if let Some(tp_link) = payload.get("tp_link_specific") {
+            if let Some(fw) = tp_link.get("firmware_version") {
+                basic_info.insert("firmware_version".into(), fw.clone());
+                basic_info.insert("os_version".into(), fw.clone());
+            }
+        }
+        if let Some(huawei) = payload.get("huawei_specific") {
+            if let Some(fw) = huawei.get("firmware_version") {
+                basic_info.insert("firmware_version".into(), fw.clone());
+                basic_info.insert("os_version".into(), fw.clone());
+            }
+        }
+    }
+
     // Renombrar "uptime" → "sys_uptime" y añadir campo "formatted"
     if let Some(mut uptime) = system.get("uptime").cloned() {
         if let Some(human) = uptime.get("human").cloned() {
@@ -187,27 +221,22 @@ fn transform_performance(payload: &mut Value) {
 
     // --- Memoria: renombrar campos y convertir GB → MB ---
     if let Some(memory) = perf.get("memory").cloned() {
-        let total_gb = memory.get("total_gb").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let used_gb = memory.get("used_gb").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let free_gb = memory.get("free_gb").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let usage_pct = memory
-            .get("usage_percent")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
-        let swap_total_gb = memory
-            .get("swap_total_gb")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
-        let swap_used_gb = memory
-            .get("swap_used_gb")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
+        let total_gb = memory.get("total_gb").and_then(|v| str_or_f64(&v)).unwrap_or(0.0);
+        let used_gb = memory.get("used_gb").and_then(|v| str_or_f64(&v)).unwrap_or(0.0);
+        let free_gb = memory.get("free_gb").and_then(|v| str_or_f64(&v)).unwrap_or(0.0);
+        
+        let usage_pct = memory.get("mem_usage_percent").and_then(|v| str_or_f64(&v))
+            .unwrap_or_else(|| memory.get("usage_percent").and_then(|v| str_or_f64(&v)).unwrap_or(0.0));
+            
+        let swap_total_gb = memory.get("swap_total_gb").and_then(|v| str_or_f64(&v)).unwrap_or(0.0);
+        let swap_used_gb = memory.get("swap_used_gb").and_then(|v| str_or_f64(&v)).unwrap_or(0.0);
 
-        let total_mb = round2(total_gb * 1024.0);
-        let used_mb = round2(used_gb * 1024.0);
-        let free_mb = round2(free_gb * 1024.0);
-        let swap_total_mb = round2(swap_total_gb * 1024.0);
-        let swap_free_mb = round2((swap_total_gb - swap_used_gb).max(0.0) * 1024.0);
+        let total_mb = memory.get("mem_total_mb").and_then(|v| str_or_f64(&v)).unwrap_or_else(|| round2(total_gb * 1024.0));
+        let used_mb = memory.get("mem_used_mb").and_then(|v| str_or_f64(&v)).unwrap_or_else(|| round2(used_gb * 1024.0));
+        let free_mb = memory.get("mem_free_mb").and_then(|v| str_or_f64(&v)).unwrap_or_else(|| round2(free_gb * 1024.0));
+        
+        let swap_total_mb = memory.get("swap_total_mb").and_then(|v| str_or_f64(&v)).unwrap_or_else(|| round2(swap_total_gb * 1024.0));
+        let swap_free_mb = memory.get("swap_free_mb").and_then(|v| str_or_f64(&v)).unwrap_or_else(|| round2((swap_total_gb - swap_used_gb).max(0.0) * 1024.0));
 
         perf["memory"] = json!({
             "mem_usage_percent": usage_pct,
