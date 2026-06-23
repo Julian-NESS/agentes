@@ -27,26 +27,29 @@ pub async fn collect(client: &SnmpClient) -> serde_json::Value {
     // -----------------------------------------------------------------------
 
     // Tabla estándar (32-bit counters)
-    let (if_descr, _)       = client.bulk(oids["ifDescr"], 50).await;
-    let (if_type, _)        = client.bulk(oids["ifType"], 50).await;
-    let (if_speed, _)       = client.bulk(oids["ifSpeed"], 50).await;
-    let (if_admin, _)       = client.bulk(oids["ifAdminStatus"], 50).await;
-    let (if_oper, _)        = client.bulk(oids["ifOperStatus"], 50).await;
-    let (if_in_oct, _)      = client.bulk(oids["ifInOctets"], 50).await;
-    let (if_out_oct, _)     = client.bulk(oids["ifOutOctets"], 50).await;
-    let (if_in_err, _)      = client.bulk(oids["ifInErrors"], 50).await;
-    let (if_out_err, _)     = client.bulk(oids["ifOutErrors"], 50).await;
-    let (if_in_disc, _)     = client.bulk(oids["ifInDiscards"], 50).await;
-    let (if_out_disc, _)    = client.bulk(oids["ifOutDiscards"], 50).await;
-    let (if_in_pkts, _)     = client.bulk(oids["ifInUcastPkts"], 50).await;
-    let (if_out_pkts, _)    = client.bulk(oids["ifOutUcastPkts"], 50).await;
+    // Usar bulk_walk (iterativo) en lugar de bulk(max_repetitions=50) para
+    // cubrir tablas con más de 50 entradas (ej: Huawei S5731 con 48 GE + 4 10GE
+    // + interfaces virtuales = ~60 entradas, que exceden el max_repetitions).
+    let (if_descr, _)       = client.bulk_walk(oids["ifDescr"]).await;
+    let (if_type, _)        = client.bulk_walk(oids["ifType"]).await;
+    let (if_speed, _)       = client.bulk_walk(oids["ifSpeed"]).await;
+    let (if_admin, _)       = client.bulk_walk(oids["ifAdminStatus"]).await;
+    let (if_oper, _)        = client.bulk_walk(oids["ifOperStatus"]).await;
+    let (if_in_oct, _)      = client.bulk_walk(oids["ifInOctets"]).await;
+    let (if_out_oct, _)     = client.bulk_walk(oids["ifOutOctets"]).await;
+    let (if_in_err, _)      = client.bulk_walk(oids["ifInErrors"]).await;
+    let (if_out_err, _)     = client.bulk_walk(oids["ifOutErrors"]).await;
+    let (if_in_disc, _)     = client.bulk_walk(oids["ifInDiscards"]).await;
+    let (if_out_disc, _)    = client.bulk_walk(oids["ifOutDiscards"]).await;
+    let (if_in_pkts, _)     = client.bulk_walk(oids["ifInUcastPkts"]).await;
+    let (if_out_pkts, _)    = client.bulk_walk(oids["ifOutUcastPkts"]).await;
 
     // Tabla HC (64-bit) — IF-MIB RFC 2863 extensión
-    let (if_name, _)        = client.bulk(hc_oids["ifName"], 50).await;
-    let (if_hc_in, _)       = client.bulk(hc_oids["ifHCInOctets"], 50).await;
-    let (if_hc_out, _)      = client.bulk(hc_oids["ifHCOutOctets"], 50).await;
-    let (if_high_speed, _)  = client.bulk(hc_oids["ifHighSpeed"], 50).await;
-    let (if_alias, _)       = client.bulk(hc_oids["ifAlias"], 50).await;
+    let (if_name, _)        = client.bulk_walk(hc_oids["ifName"]).await;
+    let (if_hc_in, _)       = client.bulk_walk(hc_oids["ifHCInOctets"]).await;
+    let (if_hc_out, _)      = client.bulk_walk(hc_oids["ifHCOutOctets"]).await;
+    let (if_high_speed, _)  = client.bulk_walk(hc_oids["ifHighSpeed"]).await;
+    let (if_alias, _)       = client.bulk_walk(hc_oids["ifAlias"]).await;
 
     // -----------------------------------------------------------------------
     // Construir mapas por índice

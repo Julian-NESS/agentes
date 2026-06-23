@@ -1,5 +1,5 @@
 // ==============================================================================
-// NESS Relay v2.0.3 — Perfil Huawei (VRP) Switch / Router
+// NESS Relay v2.2.0 — Perfil Huawei (VRP) Switch / Router
 // ==============================================================================
 //
 // MIBs usados:
@@ -390,11 +390,250 @@ impl DeviceProfile for HuaweiProfile {
             data.insert("mem_usage_percent".into(), json!(usage_pct_all));
         }
 
+        // ----------------------------------------------------------------
+        // 10GE SFP+ Uplink Ports (descubrimiento multi-MIB)
+        // ----------------------------------------------------------------
+        // Los switches Huawei S5731-S48P4X tienen 4 puertos 10GE SFP+ que
+        // NO aparecen en IF-MIB estándar (están en MIBs propietarios Huawei).
+        // Intentamos 3 estrategias en orden de preferencia:
+        //   1. ENTITY-MIB::entPhysicalDescr (1.3.6.1.2.1.47.1.1.1.1.2)
+        //      + entAliasMappingTable (1.3.6.1.2.1.47.1.3.2.1.2)
+        //      → Mapeo entPhysicalIndex → ifIndex
+        //   2. HUAWEI-IF-EXT-MIB::hwIfName (1.3.6.1.4.1.2011.5.25.41.1.1.1.1.2)
+        //      → Tabla de extensiones Huawei con nombres reales
+        //   3. HUAWEI-L2IF-MIB::hwL2IfPortTable (1.3.6.1.4.1.2011.5.25.42.1.1.1)
+        //      → Tabla L2 de Huawei
+        // Filtramos por nombre: "XGigabitEthernet", "10GE", "TE-Gigabit".
+        let mut uplink_ports: Vec<serde_json::Value> = Vec::new();
+
+        // ── Estrategia 1: ENTITY-MIB ──
+        let (phys_entries, _) = client
+            .bulk("1.3.6.1.2.1.47.1.1.1.1.2", 32)
+            .await;
+        let (alias_entries, _) = client
+            .bulk("1.3.6.1.2.1.47.1.3.2.1.2", 32)
+            .await;
+
         debug!(
-            "Huawei vendor data: temps={}, cpu_slots={}, mem_slots={}",
+            "Huawei 10GE discovery (ENTITY-MIB): phys_entries={}, alias_entries={}",
+            phys_entries.len(),
+            alias_entries.len()
+        );
+
+        if !phys_entries.is_empty() {
+            // Construir mapa: entPhysicalIndex → ifIndex (último componente OID)
+            let mut alias_map: HashMap<String, String> = HashMap::new();
+            for (oid, _) in &alias_entries {
+                // OID format: 1.3.6.1.2.1.47.1.3.2.1.2.<physIndex>.<ifIndex>
+                let parts: Vec<&str> = oid.split('.').collect();
+                if parts.len() >= 2 {
+                    let phys_idx = parts[parts.len() - 2].to_string();
+                    let if_idx = parts[parts.len() - 1].to_string();
+                    alias_map.insert(phys_idx, if_idx);
+                }
+            }
+
+            let mut uplink_ports: Vec<serde_json::Value> = Vec::new();
+            for (oid, val) in &phys_entries {
+                let name = val.as_string();
+                // Detectar puertos 10GE por nombre
+                let is_10ge = name.starts_with("XGigabitEthernet")
+                    || name.starts_with("10GE")
+                    || name.starts_with("TE-Gigabit")
+                    || name.starts_with("TwentyFiveGigE")
+                    || name.starts_with("25GE");
+                if !is_10ge {
+                    continue;
+                }
+                let phys_idx = oid.rsplit('.').next().unwrap_or("?").to_string();
+                let if_idx = alias_map.get(&phys_idx).cloned().unwrap_or_default();
+                uplink_ports.push(json!({
+                    "phys_index": phys_idx,
+                    "if_index": if_idx,
+                    "name": name,
+                    "media": "fiber",
+                    "speed_mbps_target": 10000,
+                }));
+            }
+
+            if !uplink_ports.is_empty() {
+                data.insert("uplink_10ge_ports".into(), json!(uplink_ports));
+                data.insert("uplink_10ge_count".into(), json!(uplink_ports.len()));
+
+                // Intentar enriquecer con métricas de IF-MIB extendido para
+                // cada puerto 10GE (velocidad, estado, contadores)
+                let mut uplink_with_stats: Vec<serde_json::Value> = Vec::new();
+                for mut port in uplink_ports {
+                    let if_idx = port.get("if_index").and_then(|v| v.as_str()).unwrap_or("");
+                    if if_idx.is_empty() {
+                        uplink_with_stats.push(port);
+                        continue;
+                    }
+                    // ifHighSpeed (1.3.6.1.2.1.31.1.1.1.15.<ifIndex>)
+                    let speed_oid = format!("1.3.6.1.2.1.31.1.1.1.15.{}", if_idx);
+                    let oper_oid  = format!("1.3.6.1.2.1.2.2.1.8.{}", if_idx);
+                    let admin_oid = format!("1.3.6.1.2.1.2.2.1.7.{}", if_idx);
+
+                    let speed_res = client.get(&speed_oid).await;
+                    let oper_res  = client.get(&oper_oid).await;
+                    let admin_res = client.get(&admin_oid).await;
+
+                    let speed_mbps = speed_res.value
+                        .as_ref()
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(10000);
+                    let oper_status = oper_res.value
+                        .as_ref()
+                        .map(|v| v.as_i64().unwrap_or(2))
+                        .unwrap_or(2);  // 1=up, 2=down, 3=testing, 4=unknown
+                    let admin_status = admin_res.value
+                        .as_ref()
+                        .map(|v| v.as_i64().unwrap_or(2))
+                        .unwrap_or(2); // 1=up, 2=down, 3=testing, 4=unknown
+
+                    if let Some(obj) = port.as_object_mut() {
+                        obj.insert("speed_mbps".into(), json!(speed_mbps));
+                        obj.insert("operational_status".into(), json!(oper_status));
+                        obj.insert("admin_status".into(), json!(admin_status));
+                        // Estado textual para el dashboard
+                        let status_text = match oper_status {
+                            1 => "up",
+                            2 => "down",
+                            3 => "testing",
+                            _ => "unknown",
+                        };
+                        obj.insert("operational_status_text".into(), json!(status_text));
+                    }
+                    uplink_with_stats.push(port);
+                }
+                data.insert("uplink_10ge_ports".into(), json!(uplink_with_stats));
+            }
+        }
+
+        // ── Estrategia 2: HUAWEI-IF-EXT-MIB (hwIfName) ──
+        // Si la ENTITY-MIB no devolvió 10GE, intentar la MIB propietaria
+        // de Huawei para extensiones de interfaces.
+        if uplink_ports.is_empty() {
+            let (hw_if_entries, _) = client
+                .bulk("1.3.6.1.4.1.2011.5.25.41.1.1.1.1.2", 32)
+                .await;
+
+            debug!(
+                "Huawei 10GE discovery (HUAWEI-IF-EXT-MIB hwIfName): entries={}",
+                hw_if_entries.len()
+            );
+
+            for (oid, val) in &hw_if_entries {
+                let name = val.as_string();
+                let is_10ge = name.starts_with("XGigabitEthernet")
+                    || name.starts_with("10GE")
+                    || name.starts_with("TE-Gigabit")
+                    || name.starts_with("TwentyFiveGigE")
+                    || name.starts_with("25GE");
+                if !is_10ge {
+                    continue;
+                }
+                let if_idx = oid.rsplit('.').next().unwrap_or("?").to_string();
+                uplink_ports.push(json!({
+                    "if_index": if_idx,
+                    "name": name,
+                    "media": "fiber",
+                    "speed_mbps_target": 10000,
+                    "source": "HUAWEI-IF-EXT-MIB",
+                }));
+            }
+
+            if !uplink_ports.is_empty() {
+                data.insert("uplink_10ge_ports".into(), json!(uplink_ports.clone()));
+                data.insert("uplink_10ge_count".into(), json!(uplink_ports.len()));
+                data.insert("uplink_10ge_source".into(), json!("HUAWEI-IF-EXT-MIB"));
+            }
+        }
+
+        // ── Estrategia 3: HUAWEI-L2IF-MIB (hwL2IfPortTable) ──
+        if uplink_ports.is_empty() {
+            // hwL2IfPortName: 1.3.6.1.4.1.2011.5.25.42.1.1.1.1.5
+            let (hw_l2_entries, _) = client
+                .bulk("1.3.6.1.4.1.2011.5.25.42.1.1.1.1.5", 32)
+                .await;
+
+            debug!(
+                "Huawei 10GE discovery (HUAWEI-L2IF-MIB hwL2IfPortName): entries={}",
+                hw_l2_entries.len()
+            );
+
+            for (oid, val) in &hw_l2_entries {
+                let name = val.as_string();
+                let is_10ge = name.starts_with("XGigabitEthernet")
+                    || name.starts_with("10GE")
+                    || name.starts_with("TE-Gigabit")
+                    || name.starts_with("TwentyFiveGigE")
+                    || name.starts_with("25GE");
+                if !is_10ge {
+                    continue;
+                }
+                let phys_idx = oid.rsplit('.').next().unwrap_or("?").to_string();
+                uplink_ports.push(json!({
+                    "phys_index": phys_idx,
+                    "name": name,
+                    "media": "fiber",
+                    "speed_mbps_target": 10000,
+                    "source": "HUAWEI-L2IF-MIB",
+                }));
+            }
+
+            if !uplink_ports.is_empty() {
+                data.insert("uplink_10ge_ports".into(), json!(uplink_ports.clone()));
+                data.insert("uplink_10ge_count".into(), json!(uplink_ports.len()));
+                data.insert("uplink_10ge_source".into(), json!("HUAWEI-L2IF-MIB"));
+            }
+        }
+
+        // Enriquecer los puertos encontrados con estadísticas (si hay)
+        if !uplink_ports.is_empty() && !data.get("uplink_10ge_ports_with_stats").is_some() {
+            let mut uplink_with_stats: Vec<serde_json::Value> = Vec::new();
+            for mut port in uplink_ports {
+                let if_idx = port.get("if_index").and_then(|v| v.as_str()).unwrap_or("");
+                if if_idx.is_empty() {
+                    uplink_with_stats.push(port);
+                    continue;
+                }
+                let speed_oid = format!("1.3.6.1.2.1.31.1.1.1.15.{}", if_idx);
+                let oper_oid  = format!("1.3.6.1.2.1.2.2.1.8.{}", if_idx);
+                let admin_oid = format!("1.3.6.1.2.1.2.2.1.7.{}", if_idx);
+
+                let speed_res = client.get(&speed_oid).await;
+                let oper_res  = client.get(&oper_oid).await;
+                let admin_res = client.get(&admin_oid).await;
+
+                let speed_mbps = speed_res.value.as_ref().and_then(|v| v.as_u64()).unwrap_or(10000);
+                let oper_status = oper_res.value.as_ref().and_then(|v| v.as_i64()).unwrap_or(2);
+                let admin_status = admin_res.value.as_ref().and_then(|v| v.as_i64()).unwrap_or(2);
+
+                if let Some(obj) = port.as_object_mut() {
+                    obj.insert("speed_mbps".into(), json!(speed_mbps));
+                    obj.insert("operational_status".into(), json!(oper_status));
+                    obj.insert("admin_status".into(), json!(admin_status));
+                    let status_text = match oper_status {
+                        1 => "up",
+                        2 => "down",
+                        3 => "testing",
+                        _ => "unknown",
+                    };
+                    obj.insert("operational_status_text".into(), json!(status_text));
+                }
+                uplink_with_stats.push(port);
+            }
+            // Sobrescribir con la versión enriquecida (si ya existía en Estrategia 1)
+            data.insert("uplink_10ge_ports".into(), json!(uplink_with_stats));
+        }
+
+        debug!(
+            "Huawei vendor data: temps={}, cpu_slots={}, mem_slots={}, 10ge_uplinks={}",
             data.get("temperatures").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0),
             data.get("cpu_slots").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0),
             data.get("memory_slots").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0),
+            data.get("uplink_10ge_count").and_then(|v| v.as_f64()).unwrap_or(0.0) as usize,
         );
 
         json!(data)

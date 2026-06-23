@@ -1,9 +1,9 @@
 [package]
 name = "ness-relay"
-version = "2.0.0"
+version = "2.3.0"
 edition = "2021"
 authors = ["NETWORK IS COLOMBIA S.A.S."]
-description = "NESS Relay v2.0.0 - Multi-Vendor Enterprise SNMP Monitor (Rust Edition)"
+description = "NESS Relay v2.3.0 - Multi-Vendor Enterprise SNMP Monitor (Rust Edition)"
 license = "Proprietary"
 
 # ==============================================================================

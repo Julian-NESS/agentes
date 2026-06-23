@@ -156,6 +156,31 @@ impl DeviceProfile for FortinetProfile {
         let mut data = serde_json::Map::new();
 
         // -----------------------------------------------------------------------
+        // Versión FortiOS y serial number (FORTINET-FORTIGATE-MIB)
+        //   fgSysVersion  = 1.3.6.1.4.1.12356.101.4.1.1.0   (OctetString)
+        //   fgSysSerial   = 1.3.6.1.4.1.12356.101.4.1.14.0  (OctetString)
+        // -----------------------------------------------------------------------
+        let fg_ver    = client.get("1.3.6.1.4.1.12356.101.4.1.1.0").await;
+        let fg_serial = client.get("1.3.6.1.4.1.12356.101.4.1.14.0").await;
+
+        let fortios_version = fg_ver.value.as_ref()
+            .map(|v| v.as_string())
+            .unwrap_or_default();
+        let fortios_serial  = fg_serial.value.as_ref()
+            .map(|v| v.as_string())
+            .unwrap_or_default();
+
+        if !fortios_version.is_empty() {
+            data.insert("fortios_version".into(), json!(fortios_version));
+            // Alias usado por payload_compat para fallback
+            data.insert("firmware_version".into(), json!(fortios_version));
+            data.insert("os_version".into(), json!(fortios_version));
+        }
+        if !fortios_serial.is_empty() {
+            data.insert("serial_number".into(), json!(fortios_serial));
+        }
+
+        // -----------------------------------------------------------------------
         // Sesiones IPv4/IPv6
         // -----------------------------------------------------------------------
         let ipv4_sessions = client.get("1.3.6.1.4.1.12356.101.4.1.8.0").await;

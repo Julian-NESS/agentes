@@ -125,6 +125,23 @@ impl Clone for SnmpClient {
     }
 }
 
+/// Incrementa un OID lexicográficamente (suma 1 al último componente).
+/// Usado por `bulk_walk` para continuar el walk después de cada página.
+fn increment_oid_lex(oid: &str) -> String {
+    let parts: Vec<&str> = oid.split('.').collect();
+    if parts.is_empty() {
+        return oid.to_string();
+    }
+    let last_idx = parts.len() - 1;
+    let last_num: u64 = parts[last_idx].parse().unwrap_or(0);
+    let mut new_parts: Vec<String> = parts[..last_idx]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    new_parts.push((last_num + 1).to_string());
+    new_parts.join(".")
+}
+
 impl SnmpClient {
     /// Crea un nuevo SnmpClient desde la configuración del dispositivo.
     pub async fn new(device_config: &serde_json::Value) -> Result<Self> {
@@ -1156,6 +1173,83 @@ impl SnmpClient {
             .collect();
 
         (results, None)
+    }
+
+    /// Walk completo de una tabla SNMP: itera con GETBULK hasta agotar la tabla.
+    ///
+    /// A diferencia de `bulk(OID, n)` que solo hace UNA llamada GETBULK y trae
+    /// como mucho `n` entradas, `bulk_walk(OID)` continúa iterando mientras
+    /// el agente devuelva entradas dentro del sub-árbol del OID base.
+    ///
+    /// Esto es necesario para switches con muchas interfaces (ej: Huawei S5731
+    /// con 48 GE + 4 10GE + interfaces virtuales = ~60 entradas, que exceden
+    /// el max_repetitions=50 de una sola llamada).
+    ///
+    /// Parámetros:
+    /// - oid: OID base de la tabla (ej: "1.3.6.1.2.1.2.2.1.1" para ifIndex)
+    /// - page_size: entradas por iteración (default 50 = max_repetitions seguro)
+    /// - max_total: tope duro para evitar loops infinitos (default 500)
+    pub async fn bulk_walk(
+        &self,
+        oid: &str,
+    ) -> (Vec<(String, SnmpValue)>, Option<String>) {
+        let page_size: u32 = 50;
+        let max_total: usize = 500;
+        let mut all_results: Vec<(String, SnmpValue)> = Vec::new();
+        let mut last_oid: Option<String> = None;
+        let base_oid = oid.trim_end_matches('.');
+
+        for _iteration in 0..20 {  // hasta 20 páginas × 50 = 1000 entradas máx
+            // OID de inicio: la primera vez es el base; las siguientes son
+            // el último OID recibido + 1 lexicográficamente.
+            let start_oid = match &last_oid {
+                Some(prev) => increment_oid_lex(prev),
+                None => oid.to_string(),
+            };
+
+            let (page_results, error) = self.bulk(&start_oid, page_size).await;
+            if let Some(err) = error {
+                if all_results.is_empty() {
+                    return (vec![], Some(err));
+                }
+                break;
+            }
+
+            // Filtrar entradas que aún estén dentro del sub-árbol del OID base
+            // (bulk() ya hace este filtro, pero al iterar necesitamos evitar
+            // que el OID incrementado caiga fuera del árbol).
+            let valid_entries: Vec<(String, SnmpValue)> = page_results
+                .into_iter()
+                .filter(|(resp_oid, _)| resp_oid.starts_with(base_oid))
+                .collect();
+
+            let prev_count = all_results.len();
+            for entry in valid_entries {
+                if all_results.len() >= max_total {
+                    break;
+                }
+                // Evitar duplicados: el primer OID de la nueva página puede
+                // coincidir con el último de la página anterior.
+                if Some(&entry.0) != last_oid.as_ref() {
+                    all_results.push(entry);
+                }
+            }
+
+            // Si no obtuvimos entradas nuevas, terminamos.
+            if all_results.len() == prev_count {
+                break;
+            }
+            // Guardar el último OID para la siguiente iteración.
+            if let Some(last) = all_results.last() {
+                last_oid = Some(last.0.clone());
+            }
+            // Si obtuvimos menos del page_size, ya no hay más entradas.
+            if all_results.len() - prev_count < page_size as usize {
+                break;
+            }
+        }
+
+        (all_results, None)
     }
 
     /// Walk iterativo via GETNEXT (fallback para SNMPv1 o cuando GETBULK falla).

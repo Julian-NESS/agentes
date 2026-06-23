@@ -72,6 +72,20 @@ fn transform_system(payload: &mut Value) {
                 basic_info.insert("os_version".into(), fw.clone());
             }
         }
+        // Fortinet FortiGate: fortinet_specific.firmware_version
+        // (poblado por fortinet.rs desde OID 1.3.6.1.4.1.12356.101.4.1.1.0)
+        if let Some(fortinet) = payload.get("fortinet_specific") {
+            if let Some(fw) = fortinet.get("firmware_version").or_else(|| fortinet.get("fortios_version")) {
+                basic_info.insert("firmware_version".into(), fw.clone());
+                basic_info.insert("os_version".into(), fw.clone());
+            }
+            // Serial number también va aquí para que aparezca en basic_info
+            if let Some(serial) = fortinet.get("serial_number") {
+                if !basic_info.contains_key("serial_number") {
+                    basic_info.insert("serial_number".into(), serial.clone());
+                }
+            }
+        }
     }
 
     // Renombrar "uptime" → "sys_uptime" y añadir campo "formatted"
@@ -163,11 +177,87 @@ fn transform_network(payload: &mut Value) {
             .unwrap_or("")
             .to_string();
 
+        // -------------------------------------------------------------------
+        // Clasificar media físico (cobre/fibra)
+        // -------------------------------------------------------------------
+        // Estrategia de 4 niveles (de mayor a menor confianza):
+        // 1. Nombre del puerto (más confiable: vendor ya etiquetó el puerto)
+        //    - Patrones fiber: "fiber", "SFP", "SFP+", "XFP", "QSFP", "XGigabit",
+        //      "10GE", "25GE", "40GE", "100GE", "Fo", "Te" (TenGigabitEthernet)
+        //    - Patrones copper: "copper", "RJ45", "Gi", "Fa", "Eth", "Fe", "Ge"
+        // 2. ifType numérico (RFC 1213 / IANAifType-MIB)
+        //    - 6/117 → copper, 62/69/71/151 → fiber
+        // 3. Velocidad como último recurso
+        //    - >= 10 Gbps → fiber
+        //    - < 10 Gbps → copper
+        //
+        // IMPORTANTE: Muchos vendors reportan ifType=6 (ethernetCsmacd) para
+        // puertos SFP+, por lo que el nombre debe tener prioridad.
+        let if_type_val = iface.get("type").and_then(|v| v.as_i64()).unwrap_or(0);
+        let name_lower = name.to_lowercase();
+
+        // 1) Heurística por nombre (PRIORIDAD)
+        // Fiber: tokens que indican transceivers ópticos o velocidades >= 10G
+        let name_indicates_fiber = name_lower.contains("fiber")
+            || name_lower.contains("sfp")
+            || name_lower.contains("xfp")
+            || name_lower.contains("qsfp")
+            // Huawei/Cisco
+            || name_lower.contains("xgigabit")
+            || name_lower.contains("tengigabit")
+            || name_lower.contains("tengig")
+            // Cisco IOS-XE: TwentyFiveGigE, HundredGigE, FortyGigE
+            || name_lower.contains("twentyfive")
+            || name_lower.contains("fortygi")
+            || name_lower.contains("hundredgi")
+            || name_lower.contains("fiftygi")
+            || name_lower.contains("fourhundredgi")
+            || name_lower.contains("twohundredfiftygi")
+            // Notación "GE": 10GE, 25GE, 40GE, 100GE
+            || name_lower.contains("10ge")
+            || name_lower.contains("25ge")
+            || name_lower.contains("40ge")
+            || name_lower.contains("100ge")
+            // Notación "G": 10G, 25G, 40G, 100G
+            || name_lower.contains("10g")
+            || name_lower.contains("25g")
+            || name_lower.contains("40g")
+            || name_lower.contains("100g")
+            // Prefijos abreviados: Te (Ten), Fo (Forty), Hu (Hundred), Fi (Fifty)
+            // siempre seguidos de dígito
+            || {
+                let bytes = name_lower.as_bytes();
+                bytes.len() >= 3
+                    && (bytes[0] == b't' || bytes[0] == b'f' || bytes[0] == b'h')
+                    && (bytes[1] == b'e' || bytes[1] == b'o' || bytes[1] == b'u')
+                    && bytes[2].is_ascii_digit()
+            };
+        // Copper: tokens que indican RJ45 / cobre
+        let name_indicates_copper = name_lower.contains("copper")
+            || name_lower.contains("rj45")
+            || name_lower.contains("base-t");
+
+        let media: &str = if name_indicates_fiber && !name_indicates_copper {
+            "fiber"
+        } else if name_indicates_copper {
+            "copper"
+        } else {
+            // 2) Fallback por ifType numérico
+            match if_type_val {
+                62 | 69 | 71 | 151 => "fiber",
+                6 | 117 => "copper",
+                // 3) Último recurso: velocidad
+                _ if speed_mbps >= 10_000 => "fiber",
+                _ => "copper",
+            }
+        };
+
         interfaces_dict.insert(
             index.clone(),
             json!({
                 "index": index,
                 "name": name,
+                "media": media,
                 "admin_status": admin_status,
                 "operational_status": oper_status,
                 "speed_mbps": speed_mbps,

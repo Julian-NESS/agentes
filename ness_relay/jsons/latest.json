@@ -1,9 +1,9 @@
 {
-  "version": "2.1.0",
+  "version": "2.3.0",
   "release_date": "2026-05-02",
   "min_supported": "2.0.0",
   "installer": {
-    "url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/2.1.0/install_relay.sh",
+    "url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/2.3.0/install_relay.sh",
     "fileName": "install_relay.sh",
     "sha256": "1fa14340f4760d9e0f97d12054b1199c0c89a153448f97075f80d1523a53ec08"
   },
@@ -12,16 +12,16 @@
       "arch": "x86_64",
       "platform": "linux",
       "binary": {
-        "url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/2.1.0/ness-relay-x86_64",
+        "url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/2.3.0/ness-relay-x86_64",
         "fileName": "ness-relay-x86_64",
-        "sha256": "cd74f68fa0801073e6b94c45d63628273bf9aefbc5f987711e05900dd42b14b7"
+        "sha256": "64feedb4657ae3c08b84f594da4e01fa178576afee676f62c296d58aee3a08b7"
       }
     },
     {
       "arch": "aarch64",
       "platform": "linux",
       "binary": {
-        "url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/2.1.0/ness-relay-aarch64",
+        "url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/2.3.0/ness-relay-aarch64",
         "fileName": "ness-relay-aarch64",
         "sha256": "31fcd0b656fd40c0158c6489404ce51d54443c49056a4bd2f0c4a1dd83e592d4"
       }
@@ -29,7 +29,7 @@
   ],
   "changelog": [
     
-    "NESS Relay v2.1.0 — Multi-arquitectura (x86_64 + aarch64)",
+    "NESS Relay v2.3.0 — Multi-arquitectura (x86_64 + aarch64)",
     "Soporte para instalación guiada desde frontend UI",
     "Distribución directa de binarios (sin ZIP)",
     "Variables de entorno: NESS_TOKEN, NESS_TIME, NESS_SERVER_ID, NESS_RELAY_*",
