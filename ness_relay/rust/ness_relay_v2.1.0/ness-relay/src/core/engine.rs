@@ -58,13 +58,17 @@ impl CollectionEngine {
     //                NO se debe enviar al servidor para evitar falsos positivos
     //                con payloads que solo contienen metadata parcial.
     // -------------------------------------------------------------------------
-    pub async fn collect_device(&self, device: &DeviceConfig) -> Result<Value> {
+    pub async fn collect_device(
+        &self,
+        device: &DeviceConfig,
+        audit_mode: bool,
+    ) -> Result<Value> {
         let device_json = device.to_json();
         let collection_start = now_iso();
         let timer = Instant::now();
         info!(
-            "[{}] Iniciando recolección — vendor={} ip={}",
-            device.device_id, device.vendor, device.ip
+            "[{}] Iniciando recolección — vendor={} ip={} audit_mode={}",
+            device.device_id, device.vendor, device.ip, audit_mode
         );
 
         // [1/8] Cargar perfil
@@ -80,6 +84,13 @@ impl CollectionEngine {
             Ok(c) => Arc::new(c),
             Err(e) => {
                 error!("[{}] [2/8] No se pudo crear cliente SNMP: {}", device.device_id, e);
+                if audit_mode {
+                    warn!(
+                        "[{}] SNMP client falló pero audit_mode=true — se construye payload SNMP-vacío y se continúa con audit (phases 9+10)",
+                        device.device_id,
+                    );
+                    return self.audit_only_payload(device, audit_mode, timer, collection_start).await;
+                }
                 warn!(
                     "[{}] Recolección incompleta en fase 2/8 — NO se enviará al servidor",
                     device.device_id
@@ -93,6 +104,13 @@ impl CollectionEngine {
         if !conn_result.is_ok() {
             let err_msg = conn_result.error.as_deref().unwrap_or("timeout / no response");
             warn!("[{}] [2/8] Fallo de conectividad: {}", device.device_id, err_msg);
+            if audit_mode {
+                warn!(
+                    "[{}] SNMP caído pero audit_mode=true — se continúa con audit (phases 9+10 sobre SSH)",
+                    device.device_id,
+                );
+                return self.audit_only_payload(device, audit_mode, timer, collection_start).await;
+            }
             warn!(
                 "[{}] Recolección incompleta en fase 2/8 — NO se enviará al servidor",
                 device.device_id
@@ -206,13 +224,129 @@ impl CollectionEngine {
             device.device_id, total_alerts, total_warnings, elapsed
         );
 
+        // =========================================================================
+        // Phase 9 + 10 — SSH-based audit (opt-in, best-effort)
+        // =========================================================================
+        // Only runs when:
+        //   1. The caller requested audit mode (`--audit` flag from main).
+        //   2. `NESS_AUDIT_ENABLED=true` is set in the environment (opt-in gate,
+        //      checked once at process startup in main.rs).
+        //   3. The device has valid SSH credentials configured in
+        //      connection.config.
+        //
+        // On any failure (SSH connect timeout, plugin error, etc.) we log a
+        // warning and continue with the regular SNMP payload. The contract is
+        // best-effort: audit failures NEVER break the regular collection cycle.
+        if audit_mode {
+            use crate::ness_relay_core::vendor::PluginRegistry;
+            use crate::core::audit_runner;
+
+            let registry = std::sync::Arc::new(PluginRegistry::with_defaults());
+            match audit_runner::run_audit_phases(device, registry).await {
+                Ok(Some(audit_json)) => {
+                    if let Some(obj) = audit_json.as_object() {
+                        for (k, v) in obj {
+                            payload[k] = v.clone();
+                        }
+                    }
+                    info!(
+                        target: "ness_relay::engine",
+                        "[{}] Phase 9+10 (audit) anexadas al payload",
+                        device.device_id,
+                    );
+                }
+                Ok(None) => {
+                    info!(
+                        target: "ness_relay::engine",
+                        "[{}] Phase 9+10 omitidas (sin credenciales o vendor no soportado)",
+                        device.device_id,
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        target: "ness_relay::engine",
+                        "[{}] Phase 9+10 fallaron — {e:#} (SNMP payload ya está armado)",
+                        device.device_id,
+                    );
+                }
+            }
+        }
+
+        Ok(payload)
+    }
+
+    // -------------------------------------------------------------------------
+    // Payload mínimo para `--audit` cuando SNMP no responde (Phase 2.4).
+    //
+    // Construye un payload con solo metadata y deja que las fases 9+10 lo
+    // completen. Se usa cuando:
+    //   - `--audit` está activo
+    //   - El cliente SNMP no se pudo crear o no responde
+    //
+    // El objetivo es: si el operador está pagando el costo de correr audit
+    // cada 6h, queremos ejecutarlo aunque SNMP esté caído (es más probable
+    // que SSH funcione que SNMP, o viceversa — pero al menos probamos).
+    // -------------------------------------------------------------------------
+    async fn audit_only_payload(
+        &self,
+        device: &DeviceConfig,
+        audit_mode: bool,
+        timer: Instant,
+        collection_start: String,
+    ) -> Result<Value> {
+        let elapsed = timer.elapsed().as_secs_f64();
+        let mut payload = json!({
+            "metadata": {
+                "collection_start": collection_start,
+                "collection_end": now_iso(),
+                "collection_duration_seconds": json!(elapsed),
+                "snmp_host": device.ip,
+                "snmp_port": device.port,
+                "vendor": device.vendor,
+                "vendor_display_name": device.vendor,
+                "device_type": "firewall",
+                "relay_version": super::config::RELAY_VERSION,
+                "relay_type": super::config::RELAY_TYPE,
+                "description": device.description,
+                "audit_only": true,
+            },
+        });
+
+        if audit_mode {
+            use crate::ness_relay_core::vendor::PluginRegistry;
+            use crate::core::audit_runner;
+
+            let registry = std::sync::Arc::new(PluginRegistry::with_defaults());
+            match audit_runner::run_audit_phases(device, registry).await {
+                Ok(Some(audit_json)) => {
+                    if let Some(obj) = audit_json.as_object() {
+                        for (k, v) in obj {
+                            payload[k] = v.clone();
+                        }
+                    }
+                }
+                Ok(None) | Err(_) => {
+                    // Even when audit fails, return Ok(payload) so the caller
+                    // can decide what to do with the empty/minimal payload.
+                    info!(
+                        target: "ness_relay::engine",
+                        "[{}] audit omitido o falló — devolviendo payload mínimo",
+                        device.device_id,
+                    );
+                }
+            }
+        }
         Ok(payload)
     }
 
     // -------------------------------------------------------------------------
     // Recolección de todos los dispositivos + exportación
     // -------------------------------------------------------------------------
-    pub async fn collect_all_devices(&self, devices: &[DeviceConfig]) -> Result<()> {
+    pub async fn collect_all_devices(
+        &self,
+        devices: &[DeviceConfig],
+        audit_mode: bool,
+    ) -> Result<()> {
         if devices.is_empty() {
             warn!("No hay dispositivos configurados para recolectar.");
             return Ok(());
@@ -233,7 +367,7 @@ impl CollectionEngine {
             // Si collect_device retorna Err, NO se envía nada al servidor NESS para
             // evitar falsos positivos con payloads incompletos (ej: solo metadata).
             // -------------------------------------------------------------------------
-            let raw_payload = match self.collect_device(device).await {
+            let raw_payload = match self.collect_device(device, audit_mode).await {
                 Ok(p) => p,
                 Err(e) => {
                     warn!(

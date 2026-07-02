@@ -871,6 +871,120 @@ interactive_device_configuration() {
     DEVICE_CONFIGS["${vendor}_count"]="$device_count"
 }
 
+# ----------------------------------------------------------------------------
+# Función: prompt de opt-in para análisis de vulnerabilidades + CIS
+# Solo se llama en modo interactivo. En modo silent, devuelve "false".
+#
+# Cuando el usuario acepta:
+#   - ENABLE_AUDIT se persiste en /etc/profile.d/ness_relay.sh
+#   - El instalador registra una entrada de cron `0 */6 * * *` adicional
+#   - Por cada dispositivo Fortinet, se recolectan credenciales SSH
+#     (usuario, puerto, env var para password)
+# ----------------------------------------------------------------------------
+prompt_audit_optin() {
+    if [[ "$SILENT_MODE" == "true" ]]; then
+        ENABLE_AUDIT="false"
+        log_message "INFO" "Modo silencioso: análisis de vulnerabilidades DESACTIVADO por default"
+        return 0
+    fi
+
+    echo ""
+    echo -e "${CYAN}${BOLD}  ════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}${BOLD}  ANÁLISIS DE VULNERABILIDADES Y CONTROLES CIS${NC}"
+    echo -e "${CYAN}${BOLD}  ════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "  ${WHITE}ness-relay puede escanear vulnerabilidades conocidas y aplicar${NC}"
+    echo -e "  ${WHITE}controles CIS contra dispositivos Fortinet.${NC}"
+    echo ""
+    echo -e "  ${WHITE}Este análisis requiere:${NC}"
+    echo -e "    ${WHITE}- Acceso SSH al dispositivo${NC}"
+    echo -e "    ${WHITE}- Se ejecuta cada 6 horas (cron independiente)${NC}"
+    echo -e "    ${WHITE}- Las contraseñas NO se guardan en connection.config:${NC}"
+    echo -e "      ${WHITE}se leen del entorno en tiempo de ejecución${NC}"
+    echo ""
+    echo -e "  ${WHITE}Si activa esta opción, deberá proveer credenciales SSH durante${NC}"
+    echo -e "  ${WHITE}la configuración de cada dispositivo Fortinet.${NC}"
+    echo ""
+
+    echo -ne "${YELLOW}¿Desea activar análisis de vulnerabilidades? (y/N): ${NC}"
+    read audit_response
+    if [[ "$audit_response" =~ ^[Yy]$ ]]; then
+        ENABLE_AUDIT="true"
+        echo -e "${GREEN}  ✓ Análisis de vulnerabilidades ACTIVADO${NC}"
+        echo ""
+        return 0
+    fi
+
+    ENABLE_AUDIT="false"
+    echo -e "${DIM}  Análisis de vulnerabilidades desactivado. Puede activarlo después${NC}"
+    echo -e "${DIM}  ejecutando nuevamente este instalador.${NC}"
+    return 0
+}
+
+# ----------------------------------------------------------------------------
+# Recolectar credenciales SSH para cada dispositivo Fortinet agregado.
+# Se llama solo si ENABLE_AUDIT=true.
+# ----------------------------------------------------------------------------
+collect_ssh_credentials() {
+    if [[ "$ENABLE_AUDIT" != "true" ]]; then
+        return 0
+    fi
+
+    echo ""
+    echo -e "${CYAN}${BOLD}  ═══ Credenciales SSH para auditoría ═══${NC}"
+    echo ""
+    echo -e "  ${WHITE}Las credenciales SSH se almacenan así:${NC}"
+    echo -e "    ${WHITE}- connection.config: solo el nombre del env var${NC}"
+    echo -e "    ${WHITE}- Entorno del agente: la contraseña real (no persistida)${NC}"
+    echo -e "  ${WHITE}Recomendación: use una cuenta de servicio dedicada${NC}"
+    echo -e "  ${WHITE}con permisos de solo lectura (ej: 'auditor').${NC}"
+    echo ""
+
+    for key in "${!DEVICE_CONFIGS[@]}"; do
+        # Buscar solo entradas _ip que correspondan a Fortinet
+        if [[ "$key" =~ ^fortinet_([0-9]+)_ip$ ]]; then
+            local device_idx="${BASH_REMATCH[1]}"
+            local config_key="fortinet_${device_idx}"
+            local device_ip="${DEVICE_CONFIGS[${config_key}_ip]}"
+
+            echo -e "${BOLD}─── Dispositivo Fortinet: $device_ip ───${NC}"
+
+            echo -ne "${WHITE}  👤 Usuario SSH [default: admin]: ${NC}"
+            read ssh_user
+            ssh_user=${ssh_user:-admin}
+
+            echo -ne "${WHITE}  🔌 Puerto SSH [default: 22]: ${NC}"
+            read ssh_port
+            ssh_port=${ssh_port:-22}
+
+            local default_env="NESS_SSH_PASSWORD_fortinet_${device_idx}"
+            echo -ne "${WHITE}  🔑 Nombre de la variable de entorno para la contraseña${NC}"
+            echo ""
+            echo -ne "     ${WHITE}[default: $default_env]: ${NC}"
+            read ssh_pw_env
+            ssh_pw_env=${ssh_pw_env:-$default_env}
+
+            # Validar que el env var name solo tenga [A-Z0-9_]
+            if [[ ! "$ssh_pw_env" =~ ^[A-Z_][A-Z0-9_]*$ ]]; then
+                log_message "WARN" "Nombre de env var inválido ('$ssh_pw_env'); usando default '$default_env'"
+                ssh_pw_env="$default_env"
+            fi
+
+            DEVICE_CONFIGS["${config_key}_ssh_enabled"]="true"
+            DEVICE_CONFIGS["${config_key}_ssh_username"]="$ssh_user"
+            DEVICE_CONFIGS["${config_key}_ssh_port"]="$ssh_port"
+            DEVICE_CONFIGS["${config_key}_ssh_password_env"]="$ssh_pw_env"
+
+            echo -e "${GREEN}  ✓ Credenciales SSH configuradas para $device_ip${NC}"
+            echo -e "${DIM}    Recuerde exportar ${BOLD}$ssh_pw_env${NC}${DIM} antes del próximo ciclo de 6h${NC}"
+            echo ""
+        fi
+    done
+}
+
+# Llamar al prompt DESPUÉS de agregar todos los dispositivos.
+# En modo silent, queda en false.
+
 # Función para cargar configuración desde archivo
 load_config_file() {
     local config_source="$1"
@@ -1736,10 +1850,26 @@ log_message "PROGRESS" "Configurando variables de entorno..."
     echo "export NESS_DEVICES_FILE=\"$INSTALL_DIR/configs/connection.config\""
     echo "export NESS_OUTPUT_DIR=\"$INSTALL_DIR/output\""
     echo "export NESS_LOG_DIR=\"$INSTALL_DIR/logs\""
+    # Phase 2.4 — opt-in audit toggle. Default false; user must run the
+    # installer interactively and answer "y" to the audit prompt to flip this
+    # to true. The relay binary reads this at every startup; setting it to
+    # false (or removing the line) disables --audit immediately on the next
+    # run, without touching the crontab entries.
+    echo "export NESS_AUDIT_ENABLED=\"${ENABLE_AUDIT:-false}\""
 } > "$ENV_FILE"
 chmod +x "$ENV_FILE"
 source "$ENV_FILE"
 log_message "SUCCESS" "Variables de entorno configuradas en: $ENV_FILE"
+
+###############################################################################
+# PROMPT OPT-IN: ANÁLISIS DE VULNERABILIDADES + CIS (Phase 2.4)
+###############################################################################
+# En modo interactivo, pregunta si el usuario quiere habilitar el análisis
+# SSH de vulnerabilidades/CIS. En silent mode queda en false por defecto.
+prompt_audit_optin
+
+# Si el usuario aceptó, recolectar credenciales SSH para cada Fortinet.
+collect_ssh_credentials
 
 ###############################################################################
 # GENERAR ARCHIVO DE CONFIGURACIÓN DE DISPOSITIVOS
@@ -1923,6 +2053,45 @@ chmod +x "$UPDATE_SCRIPT"
 log_message "SUCCESS" "Script de auto-actualización creado: $UPDATE_SCRIPT"
 
 ###############################################################################
+# CREAR SCRIPT DE AUDITORÍA (audit_relay.sh) — Phase 2.4
+###############################################################################
+# Solo se crea y registra cuando NESS_AUDIT_ENABLED=true. El binario se
+# invoca con --audit; el opt-in gate (NESS_AUDIT_ENABLED) vive en main.rs.
+AUDIT_SCRIPT="$INSTALL_DIR/executables/audit_relay.sh"
+AUDIT_CRON_EXPR="0 */6 * * *"
+
+# Crear siempre el script (idempotente). Si ENABLE_AUDIT=false, no se
+# registra en cron, pero el script sigue disponible para invocación manual.
+{
+    echo "#!/bin/bash"
+    echo "#"
+    echo "# ═══════════════════════════════════════════════════════════"
+    echo "# NESS RELAY — Script de Auditoría (Phase 2.4)"
+    echo "# Ejecuta fases 9 (vulnerabilidades) + 10 (CIS) vía SSH."
+    echo "# Generado automáticamente el $(date)"
+    echo "# ═══════════════════════════════════════════════════════════"
+    echo ""
+    echo "# Cargar variables de entorno (incluye NESS_AUDIT_ENABLED)"
+    echo "source $ENV_FILE"
+    echo ""
+    echo "cd $INSTALL_DIR"
+    echo ""
+    if [ -t 1 ]; then
+        echo "echo -e \"\${YELLOW}Ejecutando auditoría NESS Relay...\${NC}\""
+        echo "./executables/$INSTALLED_BINARY_NAME --audit --config $INSTALL_DIR/configs/connection.config"
+    else
+        echo "./executables/$INSTALLED_BINARY_NAME --audit --silent --config $INSTALL_DIR/configs/connection.config"
+    fi
+    echo "EXIT_CODE=\$?"
+    echo "if [ \$EXIT_CODE -ne 0 ]; then"
+    echo "    echo \"[\$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Audit falló con código \$EXIT_CODE\" >> $INSTALL_DIR/logs/ness_relay.log"
+    echo "fi"
+    echo "exit \$EXIT_CODE"
+} > "$AUDIT_SCRIPT"
+chmod +x "$AUDIT_SCRIPT"
+log_message "SUCCESS" "Script de auditoría creado: $AUDIT_SCRIPT"
+
+###############################################################################
 # CONFIGURAR CRON
 ###############################################################################
 if [[ "$UPDATE_ONLY_MODE" == "true" ]]; then
@@ -1964,8 +2133,19 @@ else
 fi
 
 # Eliminar entradas existentes del relay y añadir la nueva según la expresión
-EXISTING_CRON="$(crontab -l 2>/dev/null | grep -v "$RUN_SCRIPT" | grep -v "$UPDATE_SCRIPT" | grep -v "ness.relay" | grep -v "ness_relay" || true)"
-if printf "%s\n%s %s\n%s %s\n" "$EXISTING_CRON" "$CRON_EXPR" "$RUN_SCRIPT" "$CRON_EXPR" "$UPDATE_SCRIPT" | sed '/^[[:space:]]*$/d' | crontab -; then
+EXISTING_CRON="$(crontab -l 2>/dev/null | grep -v "$RUN_SCRIPT" | grep -v "$UPDATE_SCRIPT" | grep -v "$AUDIT_SCRIPT" | grep -v "ness.relay" | grep -v "ness_relay" || true)"
+
+# Construir las nuevas entradas de cron. La línea de auditoría es
+# condicional: solo se registra si NESS_AUDIT_ENABLED=true quedó en true
+# tras el prompt.
+CRON_NEW_ENTRIES="$CRON_EXPR $RUN_SCRIPT"$'\n'"$CRON_EXPR $UPDATE_SCRIPT"
+
+if [[ "${ENABLE_AUDIT:-false}" == "true" ]]; then
+    CRON_NEW_ENTRIES="$CRON_NEW_ENTRIES"$'\n'"$AUDIT_CRON_EXPR $AUDIT_SCRIPT"
+    SCHEDULE_LABEL="$SCHEDULE_LABEL + auditoría cada 6h"
+fi
+
+if printf "%s\n%s\n" "$EXISTING_CRON" "$CRON_NEW_ENTRIES" | sed '/^[[:space:]]*$/d' | crontab -; then
     log_message "SUCCESS" "Tarea programada configurada ($SCHEDULE_LABEL)"
 else
     log_message "ERROR" "No se pudo registrar la tarea en crontab"
