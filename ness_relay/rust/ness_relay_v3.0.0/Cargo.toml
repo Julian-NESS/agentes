@@ -1,0 +1,85 @@
+[workspace]
+resolver = "2"
+members = [
+    "ness-relay-core",
+    "ness-relay",
+]
+
+[workspace.package]
+version = "2.4.0"
+edition = "2021"
+authors = ["NETWORK IS COLOMBIA S.A.S."]
+license = "Proprietary"
+rust-version = "1.88"
+description = "NESS Relay v2.4.0 - Multi-Vendor Enterprise Network Monitor with optional SSH audit"
+repository = "https://github.com/Julian-NESS/agentes"
+
+[workspace.dependencies]
+# Core async + serialization
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+thiserror = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-appender = "0.2"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Time / UUID
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# HTTP (rustls only)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+
+# Async traits + executor primitives
+async-trait = "0.1"
+futures = "0.3"
+
+# SSH (pure Rust) — used by ness-relay-core for audit
+russh = "0.44"
+russh-keys = "0.44"
+
+# Crypto primitives used by SNMPv3 USM
+sha2 = "0.10"
+sha1 = "0.10"
+md-5 = "0.10"
+hmac = "0.12"
+aes = "0.8"
+des = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+cfb-mode = "0.8"
+cipher = "0.4"
+digest = "0.10"
+rand = "0.8"
+
+# ZIP for the update system
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+bytes = "1"
+
+# Init-once globals
+once_cell = "1"
+
+# Credential encryption (v2.5.0+) — AES-256-GCM with HKDF-derived host key
+aes-gcm        = "0.10"
+hkdf           = "0.12"
+zeroize        = { version = "1.7", features = ["derive"] }
+subtle         = "2.6"
+base64         = "0.22"
+hex            = "0.4"
+dirs           = "5"
+byteorder      = "1.5"
+tempfile       = "3"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+overflow-checks = false

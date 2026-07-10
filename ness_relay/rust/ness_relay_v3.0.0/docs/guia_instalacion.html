@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guia de Instalacion NESS Relay v2.4.0</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        :root {
+            --ness-primary: #032647;
+            --ness-secondary: #008de6;
+            --ness-accent: #015185;
+            --ness-success: #28a745;
+            --ness-warning: #ffc107;
+            --ness-danger: #dc3545;
+            --ness-info: #17a2b8;
+            --ness-bg: #f8f9fa;
+            --ness-white: #ffffff;
+            --ness-border: #dee2e6;
+            --ness-text: #032647;
+            --ness-text-soft: #6c757d;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(180deg, #eef5fb 0%, #f8f9fa 70%);
+            color: var(--ness-text);
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            background: var(--ness-primary);
+            color: var(--ness-white);
+            padding: 24px 20px;
+            overflow-y: auto;
+            border-right: 4px solid var(--ness-accent);
+        }
+
+        .brand {
+            margin-bottom: 20px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.25);
+        }
+
+        .brand h1 {
+            font-size: 22px;
+            line-height: 1.3;
+            margin-bottom: 8px;
+        }
+
+        .brand p {
+            font-size: 13px;
+            opacity: 0.9;
+        }
+
+        .phase-list {
+            list-style: none;
+            margin-top: 18px;
+        }
+
+        .phase-list li {
+            margin-bottom: 8px;
+        }
+
+        .phase-list a {
+            display: block;
+            padding: 10px 12px;
+            border-radius: 8px;
+            color: var(--ness-white);
+            text-decoration: none;
+            font-size: 13px;
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            transition: background 0.2s ease;
+        }
+
+        .phase-list a:hover {
+            background: rgba(255, 255, 255, 0.14);
+        }
+
+        .sidebar-note {
+            margin-top: 18px;
+            font-size: 12px;
+            line-height: 1.5;
+            color: rgba(255, 255, 255, 0.9);
+            background: rgba(0, 141, 230, 0.2);
+            border-left: 4px solid var(--ness-secondary);
+            padding: 10px 12px;
+            border-radius: 8px;
+        }
+
+        .content {
+            padding: 28px;
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        .hero {
+            background: var(--ness-white);
+            border: 2px solid var(--ness-border);
+            border-radius: 12px;
+            padding: 28px;
+            margin-bottom: 20px;
+            box-shadow: 0 12px 24px rgba(3, 38, 71, 0.08);
+        }
+
+        .hero h2 {
+            color: var(--ness-primary);
+            font-size: 34px;
+            margin-bottom: 10px;
+            line-height: 1.2;
+        }
+
+        .hero p {
+            color: var(--ness-text-soft);
+            font-size: 16px;
+            line-height: 1.7;
+            margin-bottom: 10px;
+        }
+
+        .status-row {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .status-card {
+            background: var(--ness-white);
+            border: 2px solid var(--ness-border);
+            border-radius: 10px;
+            padding: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-card i {
+            font-size: 26px;
+        }
+
+        .status-card strong {
+            font-size: 18px;
+            display: block;
+        }
+
+        .status-card small {
+            color: var(--ness-text-soft);
+            font-size: 12px;
+        }
+
+        .ok i { color: var(--ness-success); }
+        .warn i { color: var(--ness-warning); }
+        .danger i { color: var(--ness-danger); }
+        .info i { color: var(--ness-info); }
+
+        section {
+            margin-bottom: 16px;
+            background: var(--ness-white);
+            border-radius: 12px;
+            border: 2px solid var(--ness-border);
+            padding: 24px;
+        }
+
+        section h3 {
+            color: var(--ness-primary);
+            font-size: 26px;
+            margin-bottom: 12px;
+            line-height: 1.2;
+        }
+
+        section h4 {
+            color: var(--ness-accent);
+            font-size: 20px;
+            margin: 16px 0 10px;
+        }
+
+        p, li {
+            font-size: 15px;
+            line-height: 1.7;
+        }
+
+        ul, ol {
+            margin-left: 20px;
+            margin-top: 8px;
+        }
+
+        .for-dummies {
+            background: rgba(23, 162, 184, 0.12);
+            border-left: 4px solid var(--ness-info);
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 12px;
+            margin-bottom: 12px;
+        }
+
+        .warning-box {
+            background: rgba(255, 193, 7, 0.14);
+            border-left: 4px solid var(--ness-warning);
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+
+        .success-box {
+            background: rgba(40, 167, 69, 0.12);
+            border-left: 4px solid var(--ness-success);
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+
+        .danger-box {
+            background: rgba(220, 53, 69, 0.12);
+            border-left: 4px solid var(--ness-danger);
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+
+        .step {
+            border: 1px solid var(--ness-border);
+            border-radius: 10px;
+            padding: 12px;
+            margin-top: 10px;
+            background: #fcfdff;
+        }
+
+        .step-title {
+            font-size: 17px;
+            font-weight: 700;
+            margin-bottom: 6px;
+            color: var(--ness-primary);
+        }
+
+        .command {
+            margin-top: 8px;
+            background: #060918;
+            color: #ffffff;
+            border-radius: 8px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 13px;
+            overflow-x: auto;
+        }
+
+        .command-inline {
+            background: #eef4fb;
+            color: var(--ness-primary);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 8px;
+            margin-bottom: 8px;
+        }
+
+        th, td {
+            border: 1px solid var(--ness-border);
+            padding: 10px;
+            text-align: left;
+            vertical-align: top;
+            font-size: 14px;
+        }
+
+        th {
+            background: #eef4fb;
+            color: var(--ness-primary);
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+            margin-top: 8px;
+        }
+
+        .card {
+            border: 1px solid var(--ness-border);
+            border-radius: 10px;
+            padding: 12px;
+            background: #ffffff;
+        }
+
+        .mini {
+            font-size: 13px;
+            color: var(--ness-text-soft);
+        }
+
+        footer {
+            margin-top: 16px;
+            border-radius: 12px;
+            padding: 18px;
+            background: var(--ness-primary);
+            color: var(--ness-white);
+        }
+
+        @media (max-width: 1080px) {
+            .layout {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                position: relative;
+                height: auto;
+                border-right: none;
+                border-bottom: 4px solid var(--ness-accent);
+            }
+
+            .status-row,
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+
+            .content {
+                padding: 18px;
+            }
+
+            .hero h2 {
+                font-size: 28px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <aside class="sidebar">
+            <div class="brand">
+                <h1><i class="bi bi-shield-check"></i> NESS Relay</h1>
+                <p>Guia de instalacion y configuracion para cliente final</p>
+            </div>
+
+            <ul class="phase-list">
+                <li><a href="#fase-1">Fase 1. Estructura de la guia</a></li>
+                <li><a href="#fase-2">Fase 2. Introduccion y requisitos</a></li>
+                <li><a href="#fase-3">Fase 3. Instalacion del agente</a></li>
+                <li><a href="#fase-4">Fase 4. Configuracion SNMP</a></li>
+                <li><a href="#fase-5">Fase 5. Smart Tester explicado</a></li>
+                <li><a href="#fase-6">Fase 6. Fabricantes soportados</a></li>
+                <li><a href="#fase-7">Fase 7. Operacion y monitoreo</a></li>
+                <li><a href="#fase-7b">Fase 7b. Auditoria (SSH, vulns + CIS)</a></li>
+                <li><a href="#fase-8">Fase 8. Actualizacion y mantenimiento</a></li>
+                <li><a href="#fase-9">Fase 9. Solucion de problemas</a></li>
+                <li><a href="#fase-10">Fase 10. Cierre y checklist final</a></li>
+            </ul>
+
+            <div class="sidebar-note">
+                <strong>Nota importante:</strong>
+                Esta guia no incluye compilacion porque esta orientada a usuarios cliente y soporte basico.
+            </div>
+        </aside>
+
+        <main class="content">
+            <header class="hero">
+                <h2>Guia para Instalar NESS Relay v2.0.0</h2>
+                <p>Esta guia te lleva de la mano para instalar y dejar funcionando el agente en Linux, sin asumir conocimientos tecnicos avanzados.</p>
+                <p>Todo esta redactado en pasos simples: que hacer, que esperar y como validar que quedo bien.</p>
+
+                <div class="status-row">
+                    <div class="status-card ok">
+                        <i class="bi bi-check-circle-fill"></i>
+                        <div>
+                            <strong>Paso a paso</strong>
+                            <small>En lenguaje simple</small>
+                        </div>
+                    </div>
+                    <div class="status-card info">
+                        <i class="bi bi-info-circle-fill"></i>
+                        <div>
+                            <strong>Smart Tester</strong>
+                            <small>Explicado por fases</small>
+                        </div>
+                    </div>
+                    <div class="status-card warn">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <div>
+                            <strong>SNMP</strong>
+                            <small>Con ejemplos claros</small>
+                        </div>
+                    </div>
+                    <div class="status-card danger">
+                        <i class="bi bi-shield-fill-x"></i>
+                        <div>
+                            <strong>Errores comunes</strong>
+                            <small>Con solucion rapida</small>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <section id="fase-1">
+                <h3>Fase 1. Estructura de la guia</h3>
+                <p>Esta documentacion esta organizada por fases para que la puedas seguir como una receta. Cada fase te dice que objetivo cumple y como saber si terminaste bien.</p>
+                <div class="for-dummies">
+                    <strong>Traduccion simple:</strong> no necesitas leer todo de una vez. Si ya instalaste, puedes saltar directo a Smart Tester, Operacion o FAQ.
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Seccion</th>
+                            <th>Para que sirve</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Fases 2 a 4</td><td>Instalar y configurar por primera vez</td></tr>
+                        <tr><td>Fases 5 a 7</td><td>Entender validaciones y operacion diaria</td></tr>
+                        <tr><td>Fases 8 a 10</td><td>Mantenimiento, soporte y cierre seguro</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <section id="fase-2">
+                <h3>Fase 2. Introduccion y requisitos previos</h3>
+                <h4>Que es NESS Relay</h4>
+                <p>NESS Relay es un agente que se instala en Linux para conectarse por SNMP a tus equipos de red (firewalls, routers, switches y servidores) y enviar la telemetria a NESS HQ.</p>
+
+                <h4>Que necesitas antes de empezar</h4>
+                <ul>
+                    <li>Un servidor Linux con acceso a internet.</li>
+                    <li>Acceso de administrador (root o sudo).</li>
+                    <li>Token API de NESS HQ (te lo entrega el equipo NESS).</li>
+                    <li>IP de tus dispositivos y credenciales SNMP.</li>
+                    <li>El archivo instalador y el binario del agente en la misma carpeta.</li>
+                </ul>
+
+                <div class="warning-box">
+                    <strong>Importante:</strong> sin token API y sin SNMP activo en tus dispositivos, el agente se instala pero no podra enviar datos utiles.
+                </div>
+
+                <h4>Mini glosario (sin tecnicismos)</h4>
+                <div class="grid-2">
+                    <div class="card"><strong>SNMP:</strong> idioma estandar para preguntar estado a equipos de red.</div>
+                    <div class="card"><strong>Token API:</strong> llave secreta para que NESS reconozca tu agente.</div>
+                    <div class="card"><strong>Cron:</strong> programador automatico para ejecutar tareas cada cierto tiempo.</div>
+                    <div class="card"><strong>Smart Tester:</strong> asistente que revisa si todo esta listo antes de operar.</div>
+                </div>
+            </section>
+
+            <section id="fase-3">
+                <h3>Fase 3. Instalacion del agente (cliente final)</h3>
+                <p>El proceso oficial para cliente final es usar el instalador interactivo. Este instalador crea carpetas, variables de entorno, scripts y programacion automatica.</p>
+
+                <div class="step">
+                    <div class="step-title">Paso 1. Entrar a la carpeta del instalador</div>
+                    <p>Ubicate donde estan los archivos <strong>install_relay.sh</strong> y el binario <strong>ness-relay</strong> (o <strong>ness-relay-x86_64</strong> / <strong>ness-relay-aarch64</strong>).</p>
+                    <div class="command">cd /ruta/del/agente && ls</div>
+                </div>
+
+                <div class="step">
+                    <div class="step-title">Paso 2. Ejecutar instalacion</div>
+                    <div class="command">sudo ./install_relay.sh</div>
+                    <p>El asistente te pedira aceptar terminos, ejecutar Smart Tester y luego completar servidor + token + dispositivos.</p>
+                </div>
+
+                <div class="step">
+                    <div class="step-title">Paso 3. Seleccionar servidor NESS</div>
+                    <ul>
+                        <li>1 = On-premise</li>
+                        <li>2 = Testing</li>
+                        <li>3 = Public Cloud</li>
+                    </ul>
+                    <p>Si no sabes cual usar, el valor tipico es <strong>3 (Public Cloud)</strong>.</p>
+                </div>
+
+                <div class="step">
+                    <div class="step-title">Paso 4. Ingresar NESS_API_TOKEN</div>
+                    <p>Debes pegar exactamente el token entregado por NESS. Si tiene error, veras fallos tipo autenticacion HTTP 401.</p>
+                </div>
+
+                <div class="step">
+                    <div class="step-title">Paso 5. Configurar dispositivos</div>
+                    <p>Seleccionas fabricante, IP, puerto SNMP y credenciales SNMP. Puedes agregar varios dispositivos por cada vendor.</p>
+                </div>
+
+                <h4>Que crea el instalador</h4>
+                <table>
+                    <thead>
+                        <tr><th>Ruta</th><th>Uso</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>/opt/ness_relay/configs</td><td>Configuracion principal (connection.config)</td></tr>
+                        <tr><td>/opt/ness_relay/executables</td><td>Binario y scripts run_relay.sh / view_config.sh</td></tr>
+                        <tr><td>/opt/ness_relay/logs</td><td>Logs de instalacion y operacion</td></tr>
+                        <tr><td>/opt/ness_relay/devices</td><td>Salidas JSON por tipo de equipo</td></tr>
+                    </tbody>
+                </table>
+
+                <div class="success-box">
+                    <strong>Resultado esperado:</strong> al final debes ver mensaje de instalacion completada y una tarea cron cada 5 minutos.
+                </div>
+            </section>
+
+            <section id="fase-4">
+                <h3>Fase 4. Configuracion SNMP (explicado facil)</h3>
+                <h4>Resumen rapido</h4>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Version</th>
+                            <th>Seguridad</th>
+                            <th>Recomendacion</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>SNMPv1</td><td>Baja</td><td>Solo si no hay alternativa</td></tr>
+                        <tr><td>SNMPv2c</td><td>Media-baja</td><td>Comun en equipos antiguos</td></tr>
+                        <tr><td>SNMPv3</td><td>Alta</td><td>Recomendado para produccion</td></tr>
+                    </tbody>
+                </table>
+
+                <h4>SNMPv3 en palabras simples</h4>
+                <ul>
+                    <li><strong>Usuario:</strong> nombre del usuario SNMPv3.</li>
+                    <li><strong>Auth protocol:</strong> forma de validar identidad (ejemplo: SHA, SHA256).</li>
+                    <li><strong>Auth password:</strong> clave de autenticacion.</li>
+                    <li><strong>Priv protocol:</strong> cifrado de datos (ejemplo: AES128, AES256).</li>
+                    <li><strong>Priv password:</strong> clave de cifrado.</li>
+                </ul>
+
+                <div class="for-dummies">
+                    <strong>Tip rapido:</strong> si no tienes politica especial, empieza con <strong>SHA + AES128</strong> para evitar incompatibilidades.
+                </div>
+
+                <h4>Ejemplo del archivo connection.config</h4>
+                <div class="command">fortinet_count=1
+fortinet_1_ip=192.168.10.99
+fortinet_1_port=161
+fortinet_1_vendor=fortinet
+fortinet_1_description=Firewall principal
+fortinet_1_snmp_version=3
+fortinet_1_v3_user=relay-user
+fortinet_1_v3_auth_protocol=SHA256
+fortinet_1_v3_auth_password=TU_PASSWORD_AUTH
+fortinet_1_v3_priv_protocol=AES256
+fortinet_1_v3_priv_password=TU_PASSWORD_PRIV</div>
+
+                <div class="danger-box">
+                    <strong>Seguridad:</strong> este archivo contiene credenciales, por eso queda protegido con permisos 600 y acceso root.
+                </div>
+            </section>
+
+            <section id="fase-5">
+                <h3>Fase 5. Smart Tester explicado de inicio a fin</h3>
+                <p>Smart Tester es un diagnostico previo para detectar problemas antes de poner el agente en produccion. Te ahorra tiempo y evita instalaciones fallidas.</p>
+
+                <h4>Fase A. System Readiness</h4>
+                <ul>
+                    <li>Verifica si cron esta instalado y activo.</li>
+                    <li>Puede intentar corregir automaticamente si falta cron.</li>
+                    <li>Confirma estado de servicio cron/crond.</li>
+                </ul>
+
+                <h4>Fase B. Network Health</h4>
+                <ul>
+                    <li>Prueba ping a gateway local.</li>
+                    <li>Prueba ping a dispositivos.</li>
+                    <li>Valida salida HTTPS hacia NESS (cloud/on-premise).</li>
+                </ul>
+
+                <h4>Fase C. Deep SNMP Validation</h4>
+                <ul>
+                    <li>Intenta lectura SNMP real de sysName.</li>
+                    <li>Clasifica errores SNMP (timeout, auth, engineID, etc.).</li>
+                    <li>Da sugerencias especificas por vendor.</li>
+                </ul>
+
+                <h4>Fase D. Local Firewall Checker</h4>
+                <ul>
+                    <li>Revisa reglas locales en ufw, firewalld, iptables, nftables.</li>
+                    <li>Advierte si UDP 161 parece bloqueado.</li>
+                </ul>
+
+                <h4>Autocompletado inteligente</h4>
+                <p>Si validas manualmente un dispositivo y pasa SNMP, Smart Tester guarda temporalmente esos datos y el instalador puede reutilizarlos para que no vuelvas a escribir todo.</p>
+
+                <div class="success-box">
+                    <strong>Resultado ideal:</strong> gateway OK + salida HTTPS OK + SNMP OK. Con eso el agente queda listo para operar.
+                </div>
+            </section>
+
+            <section id="fase-6">
+                <h3>Fase 6. Fabricantes soportados</h3>
+                <p>El agente soporta multiples perfiles. Esto permite leer OIDs y estructura segun el tipo de equipo.</p>
+                <table>
+                    <thead>
+                        <tr><th>Vendor</th><th>Notas</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Windows</td><td>Servidores Windows con SNMP habilitado</td></tr>
+                        <tr><td>Linux</td><td>Servidores Linux con SNMP habilitado</td></tr>
+                        <tr><td>Cisco</td><td>Routers y switches Cisco</td></tr>
+                        <tr><td>Fortinet</td><td>Firewalls FortiGate</td></tr>
+                        <tr><td>pfSense</td><td>Firewalls pfSense</td></tr>
+                        <tr><td>MikroTik</td><td>Perfil RouterOS general</td></tr>
+                        <tr><td>MikroTik FW</td><td>Perfil enfocado a firewall/gateway</td></tr>
+                        <tr><td>UBNT</td><td>Equipos Ubiquiti</td></tr>
+                        <tr><td>Cambium (c_n)</td><td>Equipos Cambium Networks</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <section id="fase-7">
+                <h3>Fase 7. Operacion y monitoreo diario</h3>
+                <h4>Ejecucion manual</h4>
+                <div class="command">sudo /opt/ness_relay/executables/run_relay.sh</div>
+
+                <h4>Programacion automatica</h4>
+                <p>El instalador registra cron cada 5 minutos.</p>
+                <div class="command">crontab -l | grep ness_relay</div>
+
+                <h4>Como ver logs</h4>
+                <div class="command">tail -f /opt/ness_relay/logs/ness_relay.log</div>
+
+                <h4>Ciclo de recoleccion (resumen)</h4>
+                <ol>
+                    <li>Cargar perfil de vendor.</li>
+                    <li>Probar conectividad SNMP.</li>
+                    <li>Recolectar sistema.</li>
+                    <li>Recolectar rendimiento.</li>
+                    <li>Recolectar interfaces.</li>
+                    <li>Recolectar seguridad.</li>
+                    <li>Recolectar datos especificos del vendor.</li>
+                    <li>Analizar, exportar y enviar al servidor.</li>
+                </ol>
+                <div class="for-dummies">
+                    <strong>Nota:</strong> estos son los pasos del modo SNMP normal. Si activas la auditoria SSH, el agente corre las <strong>fases 9 y 10</strong> adicionales (ver Fase 7b).
+                </div>
+            </section>
+
+            <section id="fase-7b">
+                <h3>Fase 7b. Auditoria SSH (vulnerabilidades + controles CIS)</h3>
+                <p>Ademas del monitoreo SNMP, el agente puede ejecutar una auditoria SSH contra el dispositivo para detectar vulnerabilidades conocidas (CVEs) y verificar controles de seguridad CIS. Esta funcionalidad es <strong>opcional</strong> y se activa en el momento de la instalacion.</p>
+
+                <h4>Que requiere</h4>
+                <ul>
+                    <li>Acceso SSH habilitado en el dispositivo (Fortinet, pfSense, MikroTik, etc.).</li>
+                    <li>Usuario con permisos de solo lectura (recomendado: cuenta de servicio dedicada).</li>
+                    <li>Credenciales SSH guardadas en <span class="command-inline">/etc/ness_relay/secrets.env</span> (permisos 600, root).</li>
+                    <li>Durante la primera ejecucion post-instalacion: la auditoria se ejecuta inmediatamente junto con SNMP.</li>
+                    <li>Despues: cron automatico cada 6 horas (solo para Fortinet en esta version).</li>
+                </ul>
+
+                <h4>Como se activa durante la instalacion</h4>
+                <p>El instalador pregunta al final si deseas activar la auditoria. Si respondes <strong>Y</strong>, te pedira:</p>
+                <ol>
+                    <li>Usuario SSH (default: <span class="command-inline">admin</span>).</li>
+                    <li>Puerto SSH (default: 22).</li>
+                    <li>Si quieres ver la contrasena mientras la escribes (recomendado para evitar errores).</li>
+                    <li>Contrasena SSH del dispositivo.</li>
+                </ol>
+
+                <h4>Que hace internamente</h4>
+                <p>El agente abre sesion SSH y ejecuta:</p>
+                <ul>
+                    <li><strong>Fase 9 - Vulnerabilidades:</strong> consulta NVD + CISA KEV + EPSS contra la version del FortiOS del dispositivo. Detecta CVEs y las clasifica por severidad (critical, high, medium, low).</li>
+                    <li><strong>Fase 10 - Controles CIS:</strong> ejecuta 16 chequeos CIS FortiOS (admin renamed, HTTPS habilitado, password policy, syslog, NTP, etc.). Genera score de compliance (0-100%).</li>
+                </ul>
+
+                <h4>Donde se almacenan los resultados</h4>
+                <div class="command">/opt/ness_relay/devices/firewall_fortinet/output/
+├── relay_data.json                    # telemetria SNMP (cada 5 min)
+├── vulnerabilities/
+│   └── relay_data.json               # resultados Fase 9 (cada 6h)
+└── cis_compliance/
+    └── relay_data.json               # resultados Fase 10 (cada 6h)</div>
+
+                <h4>Como ejecutarla manualmente</h4>
+                <div class="command">sudo /opt/ness_relay/executables/audit_relay.sh</div>
+
+                <h4>Como ver el resumen en pantalla</h4>
+                <p>Al ejecutar el comando anterior veras algo asi:</p>
+                <div class="command">═══════════════════════════════════════════════════════════════
+  RESUMEN DE AUDITORIA — fortigate-vm-julian (fortinet_1)
+═══════════════════════════════════════════════════════════════
+
+  ▸ Vulnerabilidades (Fase 9):
+    2 CVEs: 0 criticas, 0 altas, 0 KEV
+    IDs: CVE-2025-31514, CVE-2025-54821
+
+  ▸ Compliance CIS (Fase 10):
+    Score: 20%  (3/16 pasaron, 12 fallaron, 1 manual)
+    ⚠ Hay fallos criticos de compliance.
+
+  Archivos generados:
+    • /opt/ness_relay/devices/firewall_fortinet/output/relay_data.json
+    • /opt/ness_relay/devices/firewall_fortinet/output/vulnerabilities/
+    • /opt/ness_relay/devices/firewall_fortinet/output/cis_compliance/</div>
+
+                <h4>Preguntas frecuentes</h4>
+
+                <p><strong>1) "El SSH audit fue omitido" en el log. Que significa?</strong></p>
+                <p>El agente detecto que las credenciales SSH no estan disponibles. Posibles causas:</p>
+                <ul>
+                    <li>No se configuro contrasena durante la instalacion (Enter omitido).</li>
+                    <li>El archivo <span class="command-inline">/etc/ness_relay/secrets.env</span> no existe.</li>
+                    <li>El archivo <span class="command-inline">/etc/profile.d/ness_relay.sh</span> no fue cargado por el script que invoca el binario.</li>
+                </ul>
+                <p>Solucion: re-ejecuta la instalacion y configura la contrasena SSH.</p>
+
+                <p><strong>2) El servidor NESS HQ no responde. Pierdo los hallazgos?</strong></p>
+                <p>No. Si el envio falla, los hallazgos quedan escritos en <span class="command-inline">devices/&lt;vendor&gt;/output/</span> y se reintentan en el siguiente ciclo.</p>
+
+                <p><strong>3) Quiero probar la auditoria sin esperar 6 horas.</strong></p>
+                <p>Usa: <span class="command-inline">sudo /opt/ness_relay/executables/audit_relay.sh</span></p>
+                <p>Esto ejecuta la auditoria inmediatamente sin tocar el cron.</p>
+
+                <div class="warning-box">
+                    <strong>Importante:</strong> la auditoria es opt-in. Si no la activas en la instalacion, solo se ejecutara el monitoreo SNMP cada 5 minutos.
+                </div>
+            </section>
+
+            <section id="fase-8">
+                <h3>Fase 8. Actualizacion y mantenimiento</h3>
+                <ul>
+                    <li>El agente tiene modulo de actualizacion para consultar version remota.</li>
+                    <li>El instalador detecta instalaciones existentes y permite elegir:
+                        <ul>
+                            <li>Reinstalar completo</li>
+                            <li>Actualizar configuracion</li>
+                            <li>Cancelar</li>
+                        </ul>
+                    </li>
+                    <li>En reinstalaciones crea backup en /opt/ness_relay_backup_FECHA_HORA.</li>
+                </ul>
+
+                <div class="warning-box">
+                    <strong>Buena practica:</strong> antes de cambios grandes, respalda connection.config y valida con Smart Tester.
+                </div>
+            </section>
+
+            <section id="fase-9">
+                <h3>Fase 9. Solucion de problemas (FAQ)</h3>
+
+                <h4>1) Error de token o HTTP 401</h4>
+                <p>El token es incorrecto o no coincide con el servidor elegido.</p>
+                <p class="mini">Solucion: validar NESS_API_TOKEN y volver a probar.</p>
+
+                <h4>2) Timeout SNMP</h4>
+                <p>El puerto UDP 161 esta bloqueado, el dispositivo no responde o credenciales incorrectas.</p>
+                <p class="mini">Solucion: revisar firewall, reachability y credenciales SNMP.</p>
+
+                <h4>3) Smart Tester muestra salida HTTPS fallida</h4>
+                <p>Hay problema de DNS, proxy o salida a internet.</p>
+                <p class="mini">Solucion: validar ruta de red y resolucion de nombres.</p>
+
+                <h4>4) Cron no ejecuta</h4>
+                <p>Servicio cron deshabilitado o entrada no instalada.</p>
+                <p class="mini">Solucion: verificar estado del servicio y crontab.</p>
+
+                <h4>5) No aparecen datos en NESS HQ</h4>
+                <p>Puede ser token, servidor equivocado o todos los dispositivos fallando SNMP.</p>
+                <p class="mini">Solucion: ejecutar run_relay.sh manualmente y revisar logs.</p>
+            </section>
+
+            <section id="fase-10">
+                <h3>Fase 10. Cierre y checklist final</h3>
+                <p>Antes de entregar la instalacion como completada, confirma este checklist:</p>
+                <ul>
+                    <li>Instalador ejecutado sin errores criticos.</li>
+                    <li>connection.config creado en /opt/ness_relay/configs.</li>
+                    <li>Smart Tester con validaciones clave en verde.</li>
+                    <li>Ejecucion manual correcta con run_relay.sh.</li>
+                    <li>Cron configurado cada 5 minutos.</li>
+                    <li>Log generandose en /opt/ness_relay/logs/ness_relay.log.</li>
+                </ul>
+
+                <div class="success-box">
+                    <strong>Si todo lo anterior esta OK:</strong> el agente ya esta listo para produccion.
+                </div>
+            </section>
+
+            <footer>
+                <p><strong>NESS HQ - Network Relay Monitoring System</strong></p>
+                <p>Soporte: https://soporte.nesshq.com | Plataforma: https://nesshq.com</p>
+                <p class="mini" style="color: rgba(255,255,255,0.85); margin-top: 6px;">Documento para cliente final. Version: 2.0.0 | Fecha: 2026-04-07</p>
+            </footer>
+        </main>
+    </div>
+</body>
+</html>
