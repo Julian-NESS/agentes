@@ -37,3 +37,12 @@ ness_relay/**/output/
 **/txts/
 # --- Ignora todos los archivos archivos .txt del repositorio
 *.txt 
+
+# --- Agente ness-sentinel (NO subir codigo fuente ni artefactos) ---
+ness-sentinel/
+ness-sentinel/**/
+ness-sentinel/target/
+ness-sentinel/ness-sentinel/target/
+ness-sentinel/ness-sentinel-core/target/
+ness-sentinel/reports/*/
+!ness-sentinel/reports/.gitkeep
