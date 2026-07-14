@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ###############################################################################
-# NESS HQ - RELAY Network Monitoring System v2.0.0 (Rust Edition)
+# NESS HQ - RELAY Network Monitoring System v3.0.0 (Rust Edition)
 # Script de instalación profesional para NESS Relay — Binario estático
 #
 # CARACTERÍSTICAS:
@@ -48,6 +48,12 @@ VERIFY_SETUP_ONLY=false
 UPDATE_ONLY_MODE=false
 CONFIG_FILE=""
 API_TOKEN=""
+# Phase 2.7.0: secret minimisation. BUNDLE_TOKEN y BUNDLE_CRON_INTERVAL
+# se extraen del config firmado (cargado por load_config_file). Si el
+# frontend ya no envía NESS_TOKEN/NESS_TIME como env vars (Phase 2.7.0+),
+# estos toman el valor del bundle. Las env vars (si están) tienen prioridad.
+BUNDLE_TOKEN=""
+BUNDLE_CRON_INTERVAL=""
 SERVER_ENV=3  # Por defecto usamos Public Cloud
 GUIDED_MODE=false
 CRON_INTERVAL=""
@@ -248,12 +254,19 @@ download_file() {
     local output_file="$2"
 
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --retry 3 --connect-timeout 10 -o "$output_file" "$url"
+        # Phase 2.6.0: añadir --max-time 120 (2 min) para evitar que el
+        # operador tenga que esperar indefinidamente cuando la red del
+        # equipo destino no puede alcanzar el bucket (ej. proxy, firewall
+        # que cuelga la conexión sin devolver error). --connect-timeout 10
+        # es para la conexión inicial; --max-time es para la descarga
+        # completa del archivo (binario ~7.2 MB).
+        curl -fsSL --retry 2 --connect-timeout 10 --max-time 120 \
+            -o "$output_file" "$url" 2>&1
         return $?
     fi
 
     if command -v wget >/dev/null 2>&1; then
-        wget -qO "$output_file" "$url"
+        wget -q --timeout=120 --connect-timeout=10 -O "$output_file" "$url"
         return $?
     fi
 
@@ -274,6 +287,75 @@ verify_sha256_checksum() {
     fi
 
     [[ "$calculated_sha" == "$expected_sha" ]]
+}
+
+# ----------------------------------------------------------------------------
+# self_verify_checksum — Phase 2.6.2
+#
+# Valida el instalador contra el hash publicado en latest.json cuando
+# el instalador está en disco (modo `bash /path/install_relay.sh`).
+#
+# Limitación importante: cuando se ejecuta via `curl ... | bash`, el
+# archivo está en stdin (no en disco), BASH_SOURCE[0] está vacío, y
+# no podemos calcular el hash. En ese caso, esta función es un no-op
+# y confiamos en la validación del binario (que sí funciona en pipe)
+# como prueba de la autenticidad del bucket.
+#
+# Si se llama después de download_binary_from_metadata, podemos
+# comparar el hash del instalador en disco contra latest.json.
+# ----------------------------------------------------------------------------
+self_verify_checksum() {
+    local calculated=""
+    local expected=""
+    local self_path="${BASH_SOURCE[0]:-}"
+
+    # Caso 1: instalador en disco (descargado manualmente)
+    if [[ -n "$self_path" && -f "$self_path" ]]; then
+        # Opción A: hash embebido en el archivo (modo dev)
+        expected="$(grep -E '^# NESS_RELAY_INSTALLER_SHA256=' "$self_path" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '[:space:]')"
+        # Opción B: hash del latest.json (si ya se descargó)
+        if [[ -z "$expected" && -n "${LAST_DOWNLOADED_METADATA:-}" && -f "${LAST_DOWNLOADED_METADATA}" ]]; then
+            expected="$(python3 -c "
+import json
+try:
+    d = json.load(open('${LAST_DOWNLOADED_METADATA}'))
+    print(d.get('installer', {}).get('sha256', ''))
+except Exception:
+    pass
+" 2>/dev/null)"
+        fi
+
+        if [[ -n "$expected" ]]; then
+            calculated="$(sha256sum "$self_path" 2>/dev/null | awk '{print $1}')"
+        fi
+    fi
+
+    # Caso 2: pipe mode (curl | bash) — no podemos validar el instalador
+    if [[ -z "$expected" ]]; then
+        log_message "INFO" "self_verify_checksum: pipe mode o sin latest.json, saltando validación del instalador"
+        return 0
+    fi
+
+    if [[ "$calculated" == "$expected" ]]; then
+        log_message "SUCCESS" "Auto-validación del instalador: SHA-256 OK"
+        return 0
+    else
+        echo ""
+        echo -e "${RED}${BOLD}  ═══════════════════════════════════════════════════════════════${NC}"
+        echo -e "${RED}${BOLD}  ERROR CRÍTICO: INSTALADOR MODIFICADO EN TRÁNSITO${NC}"
+        echo -e "${RED}${BOLD}  ═══════════════════════════════════════════════════════════════${NC}"
+        echo -e "${RED}  Esperado:  $expected${NC}"
+        echo -e "${RED}  Obtenido:  $calculated${NC}"
+        echo ""
+        echo -e "${YELLOW}  Posibles causas:${NC}"
+        echo -e "    ${WHITE}1.${NC} Descarga incompleta (curl truncado por buffer de terminal)"
+        echo -e "    ${WHITE}2.${NC} Man-in-the-middle en la red del cliente"
+        echo ""
+        echo -e "${WHITE}  Solución:${NC}"
+        echo -e "    ${CYAN}Volver a descargar manualmente y verificar el hash.${NC}"
+        echo ""
+        exit 1
+    fi
 }
 
 extract_latest_version() {
@@ -445,6 +527,10 @@ download_binary_from_metadata() {
         return 1
     fi
 
+    # Phase 2.6.2: exportar la ruta del metadata para que self_verify_checksum
+    # pueda validar el instalador contra el SHA-256 publicado.
+    export LAST_DOWNLOADED_METADATA="$metadata_file"
+
     metadata_version="$(extract_latest_version "$metadata_file")"
     mapfile -t variant_info < <(extract_variant_download_info "$metadata_file" "$host_arch")
 
@@ -463,6 +549,19 @@ download_binary_from_metadata() {
     log_message "PROGRESS" "Descargando binario '$BINARY_NAME_SELECTED'${metadata_version:+ (v$metadata_version)}"
     if ! download_file "$variant_url" "$BINARY_SOURCE"; then
         log_message "ERROR" "Fallo al descargar binario desde: $variant_url"
+        echo ""
+        echo -e "${YELLOW}${BOLD}  Posibles causas:${NC}"
+        echo -e "    ${WHITE}1.${NC} El equipo no tiene salida HTTPS a ${CYAN}storage.googleapis.com${NC}"
+        echo -e "    ${WHITE}2.${NC} Un firewall corporativo está bloqueando la conexión"
+        echo -e "    ${WHITE}3.${NC} Proxy HTTP que requiere autenticación"
+        echo -e "    ${WHITE}4.${NC} DNS no resuelve el bucket (probar: nslookup storage.googleapis.com)"
+        echo ""
+        echo -e "${WHITE}  Soluciones:${NC}"
+        echo -e "    ${WHITE}a)${NC} Descargar el binario manualmente desde:"
+        echo -e "       ${CYAN}https://storage.googleapis.com/agent-updates-lab/utilities/relay/3.0.0/ness-relay-$host_arch${NC}"
+        echo -e "    ${WHITE}b)${NC} Copiarlo a /tmp/ness-relay-$host_arch y re-ejecutar este script"
+        echo -e "    ${WHITE}c)${NC} Contactar al equipo de NESS HQ si el problema persiste"
+        echo ""
         return 1
     fi
 
@@ -623,8 +722,12 @@ prompt_password_with_confirm() {
 
 normalize_snmpv3_device_configs() {
     local vendor count device_count config_key snmp_version auth_key priv_key auth_pass_key priv_pass_key
-    while IFS= read -r vendor; do
-        [[ -z "$vendor" ]] && continue
+    # Phase 2.6.3: leer vendors de DEVICE_CONFIGS, NO de stdin.
+    # El bucle original `while IFS= read -r vendor` leía de stdin, que en
+    # modo pipe (curl | bash) es una tubería ya consumida — el read se
+    # queda esperando más input y bloquea la instalación.
+    for vendor in "${!SELECTED_VENDORS[@]}"; do
+        [[ "${SELECTED_VENDORS[$vendor]}" != "true" ]] && continue
         count="${DEVICE_CONFIGS[${vendor}_count]:-0}"
         [[ "$count" =~ ^[0-9]+$ ]] || continue
 
@@ -652,7 +755,7 @@ normalize_snmpv3_device_configs() {
                 DEVICE_CONFIGS["$priv_pass_key"]=""
             fi
         done
-    done < <(get_configured_vendors)
+    done
 }
 
 # Imprime un box de 3 líneas (╔═╗ / ║título║ / ╚═╝) adaptado al ancho del terminal
@@ -704,7 +807,7 @@ show_banner() {
         printf "${WHITE}${BOLD}"; center_text "[ NESS RELAY ]"; printf "${NC}\n"
     fi
     printf "${CYAN}";      center_text "🌐  NETWORK RELAY MONITORING SYSTEM  🌐";      printf "${NC}"
-    printf "${WHITE}";     center_text "Professional Multi-Vendor Edition v2.0.0  |  ⚙️  Rust Static Binary"; printf "${NC}"
+    printf "${WHITE}";     center_text "Professional Multi-Vendor Edition v3.0.0  |  ⚙️  Rust Static Binary"; printf "${NC}"
     printf "${WHITE}${DIM}"; center_text "NETWORK IS COLOMBIA S.A.S  |  © 2026  Todos los derechos reservados"; printf "${NC}\n"
     print_line "═" "${WHITE}${BOLD}"
     echo ""
@@ -802,6 +905,51 @@ log_message() {
             echo "[${timestamp}] ${message}" >> "$logfile" 2>/dev/null
             ;;
     esac
+}
+
+# Phase 2.7.2: ensure_dir — helper idempotente para crear directorios
+# de forma segura. Patrón estándar de la competencia (RPM, AUR, Debian
+# postinst): detectar si el directorio existe, crearlo con `mkdir -p`
+# si falta, y emitir un WARNING transparente cuando se crea uno
+# nuevo. Si después de mkdir -p el directorio SIGUE sin existir
+# (permisos, read-only filesystem, etc.) falla con error claro.
+#
+# Política de uso:
+#   ✅ SÍ crear: /etc/profile.d/, /etc/ness_relay/, /var/log/ness_relay/,
+#                 /opt/ness_relay/  → son dirs estándar del SO o nuestros
+#   ❌ NO crear: /etc/init.d/, /etc/cron.d/, /etc/systemd/, /usr/bin/
+#                 /usr/local/bin/   → críticos del SO; si faltan hay un
+#                                       problema mayor que el instalador
+#                                       NO debe resolver silenciosamente
+#
+# Uso:
+#   ensure_dir "/etc/profile.d" 2>/dev/null
+#   ensure_dir "/opt/ness_relay" 2>/dev/null
+ensure_dir() {
+    local target_dir="$1"
+
+    # Si ya existe, no hacer nada (idempotente)
+    if [[ -d "$target_dir" ]]; then
+        return 0
+    fi
+
+    # No existe — crearlo con mkdir -p (recursivo, no falla si el
+    # padre tampoco existe)
+    if mkdir -p "$target_dir" 2>/dev/null; then
+        # Phase 2.7.2: silent mkdir -p success.
+        # En una instalación nueva /opt/ness_relay y /etc/ness_relay
+        # OBVIAMENTE no existen — emitir un WARNING aquí es ruido puro
+        # (el operador lo ve en cada install limpio y aporta cero
+        # valor diagnóstico). El ERROR path de abajo (no se pudo crear
+        # por permisos / read-only) sí se loggea porque requiere acción.
+        return 0
+    fi
+
+    # No se pudo crear (permisos, read-only, etc.) — fallar con error
+    # claro para que el operador sepa qué hacer
+    log_message "ERROR" "No se pudo crear el directorio '$target_dir'. Verifique permisos de root o que el filesystem no sea read-only."
+    log_message "ERROR" "Sugerencia: sudo mkdir -p '$target_dir' && sudo chmod 755 '$target_dir' && re-ejecute el instalador."
+    return 1
 }
 
 # Función para mostrar el menú de fabricantes
@@ -1314,8 +1462,15 @@ post_install_probe_devices() {
             done
             echo ""
 
-            echo -ne "${YELLOW}¿Desea clasificar alguno de estos dispositivos como fortinet para auditoría SSH? (y/N): ${NC}"
-            read classify_response
+            # Phase 2.6.3: en modo silent NO preguntamos interactivamente.
+            # Asumimos que el operador ya clasificó los vendors en el wizard
+            # web o lo hará manualmente después. Si no, los generic_* quedan
+            # sin clasificar y sin SSH (el binario igual los monitorea por SNMP).
+            local classify_response="n"
+            if [[ "${SILENT_MODE:-false}" != "true" ]]; then
+                echo -ne "${YELLOW}¿Desea clasificar alguno de estos dispositivos como fortinet para auditoría SSH? (y/N): ${NC}"
+                read classify_response
+            fi
 
             if [[ "$classify_response" =~ ^[Yy]$ ]]; then
                 # Ordenar los generic_idx para procesarlos en orden ascendente
@@ -1327,8 +1482,13 @@ post_install_probe_devices() {
                     local g_ip="${GENERIC_DEVICES[$generic_idx]}"
                     echo ""
                     echo -e "${WHITE}  Dispositivo $generic_idx ($g_ip)${NC}"
-                    echo -ne "  ${YELLOW}¿Es FortiGate? (y/N): ${NC}"
-                    read is_fortinet
+                    # Phase 2.6.3: en modo silent, asumimos que NO es FortiGate
+                    # para evitar otro read que pueda colgar el script.
+                    local is_fortinet="n"
+                    if [[ "${SILENT_MODE:-false}" != "true" ]]; then
+                        echo -ne "  ${YELLOW}¿Es FortiGate? (y/N): ${NC}"
+                        read is_fortinet
+                    fi
                     if [[ "$is_fortinet" =~ ^[Yy]$ ]]; then
                         # ────────────────────────────────────────────────────────
                         # Calcular el próximo idx disponible en fortinet para
@@ -1359,8 +1519,62 @@ post_install_probe_devices() {
     # ────────────────────────────────────────────────────────
 
     # ── 1. Limpieza de ssh_* preexistentes ──
-    log_message "INFO" "Limpiando claves SSH_* preexistentes (pueden estar mal mapeadas tras renombres)"
-    sed -i -E '/^[a-z_]+_[0-9]+_ssh_(enabled|username|port|password_env)=/d' "$config_file"
+    # Phase 2.6.4: la limpieza ahora es selectiva. Solo borra claves ssh_*
+    # que NO correspondan a un device con ssh_password_plain en el config
+    # (los que vinieron del bundle firmado y son nuestra única fuente
+    # de verdad para el audit).
+    #
+    # Antes se hacía un sed global que borraba TODAS las ssh_* (incluidas
+    # las del bundle), y luego `apply_audit_to_bundle` re-cifraba la
+    # password_plain. PERO si el sed borraba *_ssh_enabled, el for-loop
+    # de abajo llamaba a `prompt_ssh_credentials_for_device` que, en
+    # silent mode, salía sin reescribir nada. Resultado: el config
+    # quedaba sin claves SSH.
+    log_message "INFO" "Limpiando claves SSH_* preexistentes (preservando las del bundle firmado)"
+
+    # Detectar devices con bundle SSH (vienen del wizard firmado)
+    local preserve_composites=()
+    while IFS='=' read -r key value; do
+        key=$(echo "$key" | xargs)
+        if [[ "$key" =~ ^([a-z_]+)_([0-9]+)_ssh_password_plain$ ]]; then
+            preserve_composites+=("${BASH_REMATCH[1]}_${BASH_REMATCH[2]}")
+        fi
+    done < "$config_file"
+
+    # Si hay devices del bundle, eliminar ssh_* de OTROS devices
+    # preservando los del bundle. Si no hay devices del bundle, comportamiento
+    # legacy: borrar todas las ssh_*.
+    local preserve_count="${#preserve_composites[@]}"
+    if [[ "$preserve_count" -gt 0 ]]; then
+        local tmprewrite="${config_file}.sshclean.$$"
+        : > "$tmprewrite"
+        while IFS= read -r line; do
+            local keep=true
+            if [[ "$line" =~ ^([a-z_]+)_([0-9]+)_ssh_(enabled|username|port|password_env)= ]]; then
+                local line_composite="${BASH_REMATCH[1]}_${BASH_REMATCH[2]}"
+                local is_preserved=false
+                for pc in "${preserve_composites[@]:-}"; do
+                    if [[ "$pc" == "$line_composite" ]]; then
+                        is_preserved=true
+                        break
+                    fi
+                done
+                if [[ "$is_preserved" != "true" ]]; then
+                    keep=false
+                fi
+            fi
+            if [[ "$keep" == "true" ]]; then
+                echo "$line" >> "$tmprewrite"
+            fi
+        done < "$config_file"
+        mv "$tmprewrite" "$config_file"
+        for pc in "${preserve_composites[@]:-}"; do
+            [[ -z "$pc" ]] && continue
+            log_message "INFO" "Preservando bloque SSH de $pc (vino del bundle firmado)"
+        done
+    else
+        sed -i -E '/^[a-z_]+_[0-9]+_ssh_(enabled|username|port|password_env)=/d' "$config_file"
+    fi
 
     # ── 2. SSH prompt para cada fortinet compatible ──
     declare -A FINAL_DEVICES=()
@@ -1548,12 +1762,38 @@ reconcile_vendor_counters() {
 
     awk '
     BEGIN { FS = "=" }
-    # Capturar líneas de devices: <vendor>_<idx>_<field>=<value>
-    # Usamos split() con "_" y "=" para parsear (POSIX portable).
     {
         line = $0
-        # Saltar comentarios y vacías
+        # Capturar comentarios y líneas vacías para emitirlos al final
+        # (preservan documentación, audit_enabled, audit_interval, etc.)
         if (line ~ /^[[:space:]]*#/ || line ~ /^[[:space:]]*$/) {
+            # ORD-001: filtrar los comentarios que ahora regeneramos
+            # inline (evita duplicados con el bundle original).
+            #   - "# Dispositivo N: <desc>"  → emitido antes de cada device
+            #   - "# SSH audit (Phase 2.4)"   → emitido antes del bloque SSH
+            #   - "# Índice de dispositivos" → emitido al inicio del bloque
+            #   - Las líneas decorativas "══" y "──" que pertenecen al
+            #     bloque Índice/Dispositivo viejo → filtradas
+            if (line ~ /^[[:space:]]*#[[:space:]]*Dispositivo[[:space:]]+[0-9]+:/) next
+            if (line ~ /^[[:space:]]*#[[:space:]]*SSH[[:space:]]+audit/) next
+            if (line ~ /^[[:space:]]*#[[:space:]]*Índice[[:space:]]+de[[:space:]]+dispositivos/) next
+            if (line ~ /^[[:space:]]*#[[:space:]]*Dispositivos[[:space:]]+generic/) next
+            # Filtrar las líneas del índice viejo del bundle
+            # (formato: "# N. <desc> — <ip> — SNMPv<X>[ + SSH audit]")
+            if (line ~ /^[[:space:]]*#[[:space:]]*[0-9]+\.[[:space:]]+.+[[:space:]]+—[[:space:]]+.+[[:space:]]+—[[:space:]]+SNMPv/) next
+            # Filtrar separadores decorativos "──" del bundle viejo
+            if (line ~ /^[[:space:]]*#[[:space:]]*[─]+[[:space:]]*$/) next
+            # Filtrar la línea "# ═════" si la línea siguiente también es
+            # parte del bloque viejo (heurística: si la próxima línea
+            # en NR es "# Índice de dispositivos" o "# Dispositivo N:")
+            # Lo simplificamos: filtrar SIEMPRE las líneas puramente
+            # decorativas "══" que el bundle original ponía alrededor
+            # del bloque viejo. Las "══" del header del bundle también
+            # se filtran, pero ese header se preserva vía "other[]" con
+            # su texto. — En realidad el bundle tiene "# NESS RELAY"
+            # como header, no "══", así que filtrar las "══" no pierde
+            # info del header.
+            if (line ~ /^[[:space:]]*#[[:space:]]*[═]+[[:space:]]*$/) next
             other[NR] = line
             next
         }
@@ -1565,20 +1805,14 @@ reconcile_vendor_counters() {
         }
         key_part = substr(line, 1, eq_pos - 1)
 
-        # Detectar si es un contador <vendor>_count=N (vendor sin idx numérico)
-        # Si el último segmento NO es numérico, probablemente es un contador o
-        # una línea rara. Detectamos contador como "vendor_count" donde vendor
-        # no contiene dígitos y el sufijo es exactamente "count".
+        # Detectar contador <vendor>_count=N
         n_parts = split(key_part, kp, "_")
         if (kp[n_parts] == "count" && n_parts == 2) {
-            # Es un contador — descartar (lo regeneramos)
+            # Lo regeneramos; descartar el viejo
             next
         }
 
-        # Si no, buscar el PRIMER segmento numérico — ese es idx.
-        # Formato real: <vendor con _>[idx numérico]_<field con _>
-        # Ej: fortinet_1_ip, fortinet_1_snmp_version, fortinet_1_v3_user,
-        #     generic_2_community, mikrotik_fw_3_v3_priv_password
+        # Buscar el primer segmento numérico → ese es idx
         idx_pos = 0
         for (i = 1; i <= n_parts; i++) {
             if (kp[i] ~ /^[0-9]+$/) {
@@ -1587,7 +1821,6 @@ reconcile_vendor_counters() {
             }
         }
         if (idx_pos < 2 || idx_pos >= n_parts) {
-            # Sin idx numérico o sin field después del idx → no es device
             other[NR] = line
             next
         }
@@ -1607,28 +1840,49 @@ reconcile_vendor_counters() {
         composite = vendor SUBSEP idx SUBSEP field
         device_lines[composite] = line
         vendors_presentes[vendor] = 1
-
-        # Si es _ip, marcar este device como existente
         if (field == "ip") {
             device_idx_set[vendor SUBSEP idx] = 1
         }
+
+        # ─────────────────────────────────────────────────────
+        # ORD-001: track field order per (vendor, idx) para
+        # poder emitirlos en un orden canónico en END.
+        # ─────────────────────────────────────────────────────
+        dev_composite = vendor SUBSEP idx
+        nf = ++field_count[dev_composite]
+        field_arr[dev_composite, nf] = field
+        val_arr[dev_composite, nf] = substr(line, eq_pos + 1)
+
+        # Metadata para el bloque índice + comentarios por device
+        if (field == "ip") dev_ip[dev_composite] = substr(line, eq_pos + 1)
+        if (field == "description") dev_desc[dev_composite] = substr(line, eq_pos + 1)
+        if (field == "snmp_version") dev_snmp[dev_composite] = substr(line, eq_pos + 1)
+        if (field == "ssh_enabled") dev_has_ssh[dev_composite] = 1
         next
     }
     END {
-        # ────────────────────────────────────────────────────────
-        # Phase 2: por cada vendor, listar idx únicos y renumerar
-        # ────────────────────────────────────────────────────────
+        # ─────────────────────────────────────────────────────
+        # Field rank — orden canónico de los fields por device:
+        #   1-5  : SNMP base (ip, port, vendor, description, snmp_version)
+        #   6    : community (solo v1/v2c)
+        #   7-11 : v3_user, v3_auth_protocol, v3_auth_password,
+        #          v3_priv_protocol, v3_priv_password
+        #   12-16: ssh_enabled, ssh_username, ssh_port,
+        #          ssh_password_env, ssh_password_plain
+        #   100  : cualquier field desconocido → al final
+        # ─────────────────────────────────────────────────────
         for (vendor in vendors_presentes) {
-            n = 0
+            # Recolectar idxs únicos del vendor
+            n_devices = 0
             for (key in device_idx_set) {
                 split(key, parts, SUBSEP)
                 if (parts[1] == vendor) {
-                    n++
-                    idx_arr[n] = parts[2] + 0
+                    n_devices++
+                    idx_arr[n_devices] = parts[2] + 0
                 }
             }
-            # Ordenar idx_arr ascendente (insertion sort)
-            for (i = 2; i <= n; i++) {
+            # Ordenar idxs ascendente (insertion sort)
+            for (i = 2; i <= n_devices; i++) {
                 for (j = i; j > 1 && idx_arr[j-1] > idx_arr[j]; j--) {
                     tmp = idx_arr[j-1]
                     idx_arr[j-1] = idx_arr[j]
@@ -1636,29 +1890,105 @@ reconcile_vendor_counters() {
                 }
             }
 
-            # Emitir línea de contador
-            print vendor "_count=" n
+            # Contador del vendor
+            print vendor "_count=" n_devices
+            print ""
 
-            # Emitir los bloques de devices renumerados
-            for (new_idx = 1; new_idx <= n; new_idx++) {
-                old_idx = idx_arr[new_idx]
-                # Recolectar TODOS los fields de este device en orden
-                # Estrategia: linear scan del device_lines
-                for (key in device_lines) {
-                    split(key, parts, SUBSEP)
-                    if (parts[1] == vendor && parts[2] + 0 == old_idx) {
-                        old_line = device_lines[key]
-                        field = parts[3]
-                        eq_pos = index(old_line, "=")
-                        value = substr(old_line, eq_pos + 1)
-                        # Emitir línea renumerada
-                        printf "%s_%d_%s=%s\n", vendor, new_idx, field, value
+            # ─────────────────────────────────────────────────
+            # Bloque índice — devices en orden de aparición
+            # ─────────────────────────────────────────────────
+            print "# ═══════════════════════════════════════════════════════════"
+            print "# Índice de dispositivos (orden de aparición)"
+            for (ni = 1; ni <= n_devices; ni++) {
+                old_idx = idx_arr[ni]
+                dc = vendor SUBSEP old_idx
+                d_desc = dev_desc[dc]; if (d_desc == "") d_desc = "Dispositivo SNMP"
+                sub(/^[[:space:]]+/, "", d_desc)
+                d_ip = dev_ip[dc]; if (d_ip == "") d_ip = "?"
+                sub(/^[[:space:]]+/, "", d_ip)
+                d_snmp = dev_snmp[dc]; if (d_snmp == "") d_snmp = "?"
+                sub(/^[[:space:]]+/, "", d_snmp)
+                d_ssh = ""
+                if (dev_has_ssh[dc] == 1) d_ssh = " + SSH audit"
+                print "# " ni ". " d_desc " — " d_ip " — SNMPv" d_snmp d_ssh
+            }
+            print "# ═══════════════════════════════════════════════════════════"
+            print ""
+
+            # ─────────────────────────────────────────────────
+            # Bloques de devices renumerados con orden canónico
+            # ─────────────────────────────────────────────────
+            for (ni = 1; ni <= n_devices; ni++) {
+                old_idx = idx_arr[ni]
+                new_idx = ni
+                dc = vendor SUBSEP old_idx
+                d_desc = dev_desc[dc]; if (d_desc == "") d_desc = "Dispositivo SNMP"
+                sub(/^[[:space:]]+/, "", d_desc)
+
+                # Comentario por device
+                print "# Dispositivo " new_idx ": " d_desc
+
+                # Sort de fields: selection sort por rank
+                nf = field_count[dc]
+                for (f = 1; f <= nf; f++) sort_idx[f] = f
+
+                for (f = 1; f <= nf; f++) {
+                    fld = field_arr[dc, sort_idx[f]]
+                    r = 100
+                    if (fld == "ip") r = 1
+                    else if (fld == "port") r = 2
+                    else if (fld == "vendor") r = 3
+                    else if (fld == "description") r = 4
+                    else if (fld == "snmp_version") r = 5
+                    else if (fld == "community") r = 6
+                    else if (fld == "v3_user") r = 7
+                    else if (fld == "v3_auth_protocol") r = 8
+                    else if (fld == "v3_auth_password") r = 9
+                    else if (fld == "v3_priv_protocol") r = 10
+                    else if (fld == "v3_priv_password") r = 11
+                    else if (fld == "ssh_enabled") r = 12
+                    else if (fld == "ssh_username") r = 13
+                    else if (fld == "ssh_port") r = 14
+                    else if (fld == "ssh_password_env") r = 15
+                    else if (fld == "ssh_password_plain") r = 16
+                    field_rank[f] = r
+                }
+
+                for (i = 1; i <= nf - 1; i++) {
+                    min_i = i
+                    for (j = i + 1; j <= nf; j++) {
+                        if (field_rank[j] < field_rank[min_i]) min_i = j
+                    }
+                    if (min_i != i) {
+                        tmp = field_rank[i]; field_rank[i] = field_rank[min_i]; field_rank[min_i] = tmp
+                        tmp = sort_idx[i]; sort_idx[i] = sort_idx[min_i]; sort_idx[min_i] = tmp
                     }
                 }
-                # Línea en blanco entre devices para legibilidad
-                if (new_idx < n) print ""
+
+                # Emitir fields en orden, con separador "# SSH audit"
+                # antes del primer campo SSH
+                ssh_marker_emitted = 0
+                for (i = 1; i <= nf; i++) {
+                    f = sort_idx[i]
+                    fld = field_arr[dc, f]
+                    if (!ssh_marker_emitted && \
+                        (fld == "ssh_enabled" || fld == "ssh_username" || \
+                         fld == "ssh_port" || fld == "ssh_password_env" || \
+                         fld == "ssh_password_plain")) {
+                        print "# SSH audit (Phase 2.4)"
+                        ssh_marker_emitted = 1
+                    }
+                    val = val_arr[dc, f]
+                    printf "%s_%d_%s=%s\n", vendor, new_idx, fld, val
+                }
+                if (ni < n_devices) print ""
             }
             print ""
+        }
+        # Phase 2.6.4: preservar las líneas "other" (audit_enabled,
+        # audit_interval, comentarios de documentación, etc.) al final.
+        for (k in other) {
+            if (other[k] != "") print other[k]
         }
     }
     ' "$config_file" > "$tmpfile"
@@ -1842,6 +2172,104 @@ prompt_ssh_credentials_for_device() {
     echo -e "    ${WHITE}Dispositivo: $device_ip${NC}"
     echo ""
 
+    # Phase 2.6.3: si el bundle firmado ya trae la password SSH en plano
+    # (caso típico del wizard web con audit activado), la usamos directamente
+    # sin pedirla al usuario. Esto evita que el script se "cuelgue"
+    # silenciosamente en modo silent / pipe mode (`curl ... | bash`).
+    #
+    # Phase 2.6.4: DEVICE_CONFIGS puede tener la password con el prefijo
+    # `generic_<idx>_ssh_password_plain` (nombre del bundle original)
+    # aunque el vendor actual ya haya sido renombrado a `fortinet_<idx>`
+    # por el probe. Por eso buscamos primero con el prefijo actual y
+    # luego con `generic_<idx>` como fallback.
+    local bundle_pw="${DEVICE_CONFIGS[${config_key}_ssh_password_plain]:-}"
+    if [[ -z "$bundle_pw" && "${vendor_slug}" != "generic" ]]; then
+        # Fallback: probar el nombre original del bundle
+        bundle_pw="${DEVICE_CONFIGS[generic_${device_idx}_ssh_password_plain]:-}"
+    fi
+    local bundle_user="${DEVICE_CONFIGS[${config_key}_ssh_username]:-}"
+    if [[ -z "$bundle_user" && "${vendor_slug}" != "generic" ]]; then
+        bundle_user="${DEVICE_CONFIGS[generic_${device_idx}_ssh_username]:-}"
+    fi
+    local bundle_port="${DEVICE_CONFIGS[${config_key}_ssh_port]:-}"
+    if [[ -z "$bundle_port" && "${vendor_slug}" != "generic" ]]; then
+        bundle_port="${DEVICE_CONFIGS[generic_${device_idx}_ssh_port]:-}"
+    fi
+    if [[ -n "$bundle_pw" ]]; then
+        log_message "INFO" "SSH password presente en bundle firmado para $config_key — aplicando sin prompt"
+        local ssh_user="${bundle_user:-admin}"
+        local ssh_port="${bundle_port:-22}"
+        local ssh_password="$bundle_pw"
+        local default_env="NESS_SSH_PASSWORD_$(echo "$vendor_slug" | tr '[:lower:]' '[:upper:]')_${device_idx}"
+        install -m 700 -d /etc/ness_relay
+        if "$INSTALL_DIR/executables/$INSTALLED_BINARY_NAME" set -y "$default_env" \
+            < <(printf '%s' "$ssh_password") >/dev/null 2>&1; then
+            log_message "SUCCESS" "Contraseña SSH cifrada en /etc/ness_relay/secrets.enc (AES-256-GCM)"
+        else
+            local secrets_file="/etc/ness_relay/secrets.env"
+            if [[ ! -f "$secrets_file" ]]; then
+                echo "# NESS RELAY — Secretos SSH (chmod 600, root:root) [FALLBACK PLANO, MIGRAR]" > "$secrets_file"
+                echo "# MIGRE con: $INSTALL_DIR/executables/$INSTALLED_BINARY_NAME migrate-plaintext" >> "$secrets_file"
+                echo "# Generado el $(date)" >> "$secrets_file"
+                echo "" >> "$secrets_file"
+            fi
+            if grep -qE "^export ${default_env}=" "$secrets_file"; then
+                sed -i "s|^export ${default_env}=.*|export ${default_env}='$(escape_sed_replacement "$ssh_password")'|" "$secrets_file"
+            else
+                echo "export ${default_env}='$ssh_password'" >> "$secrets_file"
+            fi
+            chmod 600 "$secrets_file"
+            chown root:root "$secrets_file"
+            log_message "WARN" "Fallback: pass SSH en plano en $secrets_file (migre con ness-relay migrate-plaintext)"
+        fi
+        DEVICE_CONFIGS["${config_key}_ssh_enabled"]="true"
+        DEVICE_CONFIGS["${config_key}_ssh_username"]="$ssh_user"
+        DEVICE_CONFIGS["${config_key}_ssh_port"]="$ssh_port"
+        DEVICE_CONFIGS["${config_key}_ssh_password_env"]="$default_env"
+        # Phase 2.6.4: limpiar el _plain del bundle original (con prefijo
+        # viejo si existe) para evitar que quede en DEVICE_CONFIGS
+        # y se duplique después.
+        unset 'DEVICE_CONFIGS[generic_${device_idx}_ssh_password_plain]'
+        unset 'DEVICE_CONFIGS[generic_${device_idx}_ssh_username]'
+        unset 'DEVICE_CONFIGS[generic_${device_idx}_ssh_port]'
+        unset 'DEVICE_CONFIGS[generic_${device_idx}_ssh_enabled]'
+        # Phase 2.6.4: también escribir al config en disco AHORA con
+        # el nombre NUEVO del vendor. Antes `apply_audit_to_bundle`
+        # corría después pero como `*_ssh_password_plain` ya estaba
+        # en el config con el nombre viejo (`generic_1_*`), se leía
+        # OK. PERO `*_ssh_password_env` se escribía con el nombre
+        # viejo también. Ahora escribimos ambas cosas al disco con
+        # el nombre nuevo, para que el config final sea coherente
+        # con el vendor post-probe.
+        #
+        # Sin esto, el config en disco queda con
+        # `fortinet_1_ssh_password_env=` (vacío) porque
+        # `apply_audit_to_bundle` no encuentra el `_plain` (ya
+        # está renombrado a `fortinet_1_ssh_password_plain` en
+        # disco) ni lo busca con el prefijo viejo.
+        local config_file="$INSTALL_DIR/configs/connection.config"
+        if [[ -f "$config_file" ]]; then
+            # Si el config ya tiene la línea _env vacía, reemplazarla
+            if grep -qE "^${config_key}_ssh_password_env=" "$config_file"; then
+                sed -i -E "s|^${config_key}_ssh_password_env=.*|${config_key}_ssh_password_env=${default_env}|" "$config_file"
+            fi
+            # Si el config ya tiene _enabled, no duplicar
+            if ! grep -qE "^${config_key}_ssh_enabled=true" "$config_file"; then
+                sed -i -E "/^${config_key}_ip=/a\\${config_key}_ssh_enabled=true" "$config_file"
+            fi
+        fi
+        echo -e "${GREEN}  ✓ Credenciales SSH aplicadas desde bundle firmado para $device_ip${NC}"
+        return 0
+    fi
+
+    # Phase 2.6.3: en modo silent sin bundle_pw, saltamos el prompt para
+    # NO dejar el script colgado esperando input que nunca llegará.
+    # El operador puede configurar SSH después manualmente.
+    if [[ "${SILENT_MODE:-false}" == "true" ]]; then
+        log_message "WARN" "Silent mode + sin bundle_pw para $config_key: saltando prompt SSH (configure manualmente después)"
+        return 0
+    fi
+
     echo -ne "${WHITE}  👤 Usuario SSH [default: admin]: ${NC}"
     read ssh_user
     ssh_user=${ssh_user:-admin}
@@ -1999,6 +2427,37 @@ load_config_file() {
 
     log_message "PROGRESS" "Cargando configuración desde: $config_file"
 
+    # Phase 2.6.4: capturar las claves top-level del bundle (audit_enabled,
+    # audit_interval) ANTES de procesar las device keys. Estas claves no
+    # matchean el regex `vendor_idx_field` y por lo tanto no se cargaban
+    # a DEVICE_CONFIGS, lo que hacía que la instalación guiada NO activara
+    # la auditoría aunque viniera en el bundle.
+    #
+    # Phase 2.7.0: capturar también `bundle_token` y `bundle_cron_interval`
+    # (secret minimisation). El frontend YA NO envía NESS_TOKEN ni
+    # NESS_TIME como env vars en el comando curl|bash; el instalador los
+    # lee del bundle firmado. Si llegan las env vars, tienen prioridad
+    # (compatibilidad con scripts manuales).
+    while IFS='=' read -r key value; do
+        [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
+        key=$(echo "$key" | tr -d '[:space:]')
+        value=$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        case "$key" in
+            audit_enabled|audit_interval)
+                DEVICE_CONFIGS["$key"]="$value"
+                log_message "INFO" "Top-level config del bundle: $key=$value"
+                ;;
+            bundle_token)
+                BUNDLE_TOKEN="$value"
+                log_message "INFO" "Top-level config del bundle: bundle_token presente (***)"
+                ;;
+            bundle_cron_interval)
+                BUNDLE_CRON_INTERVAL="$value"
+                log_message "INFO" "Top-level config del bundle: bundle_cron_interval=${value} minutos"
+                ;;
+        esac
+    done < "$config_file"
+
     # Leer configuración del archivo
     while IFS='=' read -r key value; do
         # Ignorar líneas vacías y comentarios
@@ -2034,6 +2493,188 @@ load_config_file() {
     fi
 }
 
+# ----------------------------------------------------------------------------
+# Phase 2.6.0 — apply_audit_to_bundle
+#
+# Recorre el connection.config (ya cargado en DEVICE_CONFIGS) y, para cada
+# device con *_ssh_enabled=true, cifra la contraseña SSH en plano
+# (que vino en el bundle como `*_ssh_password_plain=...`) usando
+# `ness-relay set -y` (AES-256-GCM → /etc/ness_relay/secrets.enc), y
+# sobreescribe el campo en plano a `*_ssh_password_env=<env_var>` para
+# que el agente no lo vea en disco.
+#
+# Esta función DEBE llamarse DESPUÉS de `post_install_probe_devices`,
+# porque el probe puede renombrar `generic_1` → `fortinet_1` y los SSH
+# keys deben quedar con el vendor correcto (`NESS_SSH_PASSWORD_FORTINET_1`).
+#
+# Salida:
+#   - /etc/ness_relay/secrets.enc: archivo cifrado con AES-256-GCM.
+#   - /etc/ness_relay/.salt: salt de la clave maestra.
+#   - connection.config: `*_ssh_password_plain=...` reemplazado por
+#     `*_ssh_password_env=NESS_SSH_PASSWORD_<VENDOR>_<IDX>`.
+# ----------------------------------------------------------------------------
+apply_audit_to_bundle() {
+    local install_dir="$1"
+    local binary="${install_dir}/executables/${INSTALLED_BINARY_NAME:-ness-relay}"
+    local config_file="${install_dir}/configs/connection.config"
+
+    if [[ ! -x "$binary" ]]; then
+        log_message "WARN" "apply_audit_to_bundle: binario no ejecutable ($binary), se omite cifrado de audit"
+        return 0
+    fi
+
+    if [[ ! -f "$config_file" ]]; then
+        log_message "INFO" "apply_audit_to_bundle: no existe $config_file, saltando"
+        return 0
+    fi
+
+    # Phase 2.6.4: leer del CONFIG EN DISCO (no de DEVICE_CONFIGS en memoria)
+    # porque después de `post_install_probe_devices` los nombres de vendor
+    # pueden haber cambiado (ej: generic_1 → fortinet_1). DEVICE_CONFIGS
+    # queda con el nombre viejo, lo que produce inconsistencias como
+    # `NESS_SSH_PASSWORD_GENERIC_1` cuando el device es fortinet_1.
+    #
+    # Buscamos TODAS las claves `*_ssh_password_plain=...` en el config
+    # en disco, ciframos cada una con `ness-relay set -y`, y luego
+    # reescribimos el config reemplazando `*_ssh_password_plain` por
+    # `*_ssh_password_env=NESS_SSH_PASSWORD_<VENDOR>_<IDX>`.
+
+    local plain_keys=()
+    while IFS='=' read -r key value; do
+        key=$(echo "$key" | xargs)
+        if [[ "$key" =~ ^([a-z_]+)_([0-9]+)_ssh_password_plain$ ]]; then
+            plain_keys+=("$key")
+        fi
+    done < "$config_file"
+
+    if [[ "${#plain_keys[@]}" -eq 0 ]]; then
+        log_message "INFO" "apply_audit_to_bundle: no hay *_ssh_password_plain en el config, saltando"
+        return 0
+    fi
+
+    log_message "PROGRESS" "Cifrando credenciales SSH de auditoría (Phase 2.6.4 — bundle firmado, post-probe)…"
+
+    # Asegurar /etc/ness_relay existe
+    install -m 700 -d /etc/ness_relay
+
+    local processed=0
+    local tmpfile="${config_file}.audit.$$"
+    cp "$config_file" "$tmpfile"
+
+    # Ordenar para iterar de forma estable
+    local sorted_keys=($(printf '%s\n' "${plain_keys[@]}" | sort))
+
+    for plain_key in "${sorted_keys[@]}"; do
+        # plain_key formato: <vendor>_<idx>_ssh_password_plain
+        local prefix="${plain_key%_ssh_password_plain}"
+        local svendor="${prefix%_*}"
+        local sidx="${prefix##*_}"
+        local env_var_value="NESS_SSH_PASSWORD_$(echo "$svendor" | tr '[:lower:]' '[:upper:]')_${sidx}"
+        local env_var_key="${prefix}_ssh_password_env"
+
+        # Extraer el valor en plano del config en disco
+        local plain_value
+        plain_value="$(grep -E "^${plain_key}=" "$config_file" 2>/dev/null | head -1 | cut -d'=' -f2- | sed 's/^[[:space:]]*//' )"
+        # strip surrounding whitespace
+        plain_value="${plain_value#"${plain_value%%[![:space:]]*}"}"
+        plain_value="${plain_value%"${plain_value##*[![:space:]]}"}"
+
+        if [[ -z "$plain_value" ]]; then
+            log_message "WARN" "apply_audit_to_bundle: ${plain_key} está vacío en $config_file — se omite"
+            sed -i -E "/^${plain_key}=/d" "$tmpfile"
+            continue
+        fi
+
+        # Cifrar la pass usando `ness-relay set -y <env_var>` por stdin.
+        if printf '%s' "$plain_value" | "$binary" set -y "$env_var_value" >/dev/null 2>&1; then
+            log_message "SUCCESS" "Pass SSH de ${svendor}_${sidx} cifrada como $env_var_value"
+        else
+            log_message "ERROR" "Falló cifrado de $plain_key (rc=$?). Se ABORTA la instalación para no persistir contraseñas SSH en plano en el bundle."
+            rm -f "$tmpfile"
+            log_message "ERROR" "Posible causa: el binario hace segfault en este entorno (ver /tmp/ness_relay_install.log)."
+            log_message "ERROR" "Solución: rm -rf /etc/ness_relay /opt/ness_relay && volver a ejecutar el comando de instalación."
+            exit 1
+        fi
+
+        # Reemplazar la línea `*_ssh_password_plain=...` por `*_ssh_password_env=NESS_SSH_PASSWORD_*`
+        # y, si no existe, añadir `*_ssh_enabled=true`, `*_ssh_username`,
+        # `*_ssh_port` (pueden faltar si el bundle se generó antes del probe).
+        #
+        # Importante: usamos la versión de <vendor>_<idx> que YA está
+        # en el config (post-probe), NO la del DEVICE_CONFIGS en memoria.
+        sed -i -E "s|^${plain_key}=.*|${env_var_key}=${env_var_value}|" "$tmpfile"
+
+        # Si el config en disco no tiene `*_ssh_enabled=true` (porque el
+        # probe lo borró o porque el bundle original no lo tenía), lo añadimos.
+        if ! grep -qE "^${prefix}_ssh_enabled=true" "$tmpfile"; then
+            # Insertamos justo después de la línea *_ip= o al final
+            if grep -qE "^${prefix}_ip=" "$tmpfile"; then
+                sed -i -E "/^${prefix}_ip=/a\\${prefix}_ssh_enabled=true" "$tmpfile"
+            else
+                echo "${prefix}_ssh_enabled=true" >> "$tmpfile"
+            fi
+        fi
+        # Asegurar *_ssh_username y *_ssh_port (defaults sensatos)
+        if ! grep -qE "^${prefix}_ssh_username=" "$tmpfile"; then
+            sed -i -E "/^${prefix}_ssh_enabled=true/a\\${prefix}_ssh_username=admin" "$tmpfile"
+        fi
+        if ! grep -qE "^${prefix}_ssh_port=" "$tmpfile"; then
+            sed -i -E "/^${prefix}_ssh_username=/a\\${prefix}_ssh_port=22" "$tmpfile"
+        fi
+
+        processed=$((processed + 1))
+    done
+
+    # Persistir cambios
+    mv "$tmpfile" "$config_file"
+    chmod 600 "$config_file"
+
+    log_message "SUCCESS" "$processed credencial(es) SSH cifrada(s) y persistida(s) en /etc/ness_relay/secrets.enc"
+    return 0
+}
+
+# ----------------------------------------------------------------------------
+# Phase 2.6.0 — schedule_audit_cron
+#
+# Configura el cron de `audit_relay.sh` con la periodicidad indicada
+# (audit_interval en segundos). Por ahora solo soporta 6h/12h/24h.
+#
+# Argumentos:
+#   $1 install_dir (ej: /opt/ness_relay)
+#   $2 audit_interval (21600/43200/86400, en segundos)
+# ----------------------------------------------------------------------------
+schedule_audit_cron() {
+    local install_dir="$1"
+    local audit_interval="${2:-21600}"
+    local audit_script="${install_dir}/executables/audit_relay.sh"
+
+    if [[ ! -x "$audit_script" ]]; then
+        log_message "WARN" "schedule_audit_cron: no existe $audit_script — se omite"
+        return 0
+    fi
+
+    local hours
+    case "$audit_interval" in
+        21600) hours=6 ;;
+        43200) hours=12 ;;
+        86400) hours=24 ;;
+        *)
+            log_message "WARN" "audit_interval=$audit_interval fuera de rango soportado (6/12/24h). Usando 6h."
+            hours=6
+            ;;
+    esac
+
+    # Eliminar entradas previas de audit_relay.sh para no duplicar.
+    (crontab -l 2>/dev/null | grep -v "audit_relay.sh" || true) | crontab - 2>/dev/null || true
+
+    # Añadir nueva entrada (root-only, sin output, logs a syslog).
+    local cron_line="0 */${hours} * * * ${audit_script} >> /var/log/ness_relay_audit.log 2>&1"
+    (crontab -l 2>/dev/null; echo "$cron_line") | crontab - 2>/dev/null
+
+    log_message "SUCCESS" "Cron de auditoría configurado: cada ${hours}h → $audit_script"
+    return 0
+}
+
 # Función para generar archivo de configuración
 generate_config_file() {
     local config_file="$INSTALL_DIR/configs/connection.config"
@@ -2054,6 +2695,17 @@ generate_config_file() {
         echo "# NESS RELAY — Configuración de Dispositivos"
         echo "# Generado automáticamente el $(date)"
         echo "# ═══════════════════════════════════════════════════════════"
+        # Phase 2.6.4: preservar las claves top-level del bundle firmado
+        # (audit_enabled, audit_interval) que vienen en DEVICE_CONFIGS
+        # desde el wizard. Antes estas claves se perdían al regenerar
+        # el config desde DEVICE_CONFIGS.
+        if [[ -n "${DEVICE_CONFIGS[audit_enabled]:-}" ]]; then
+            echo "audit_enabled=${DEVICE_CONFIGS[audit_enabled]}"
+        fi
+        if [[ -n "${DEVICE_CONFIGS[audit_interval]:-}" ]]; then
+            echo "audit_interval=${DEVICE_CONFIGS[audit_interval]}"
+        fi
+        echo ""
         echo "# "
         echo "# Soporta SNMPv1, SNMPv2c y SNMPv3"
         echo "# "
@@ -2132,6 +2784,50 @@ generate_config_file() {
                         else
                             priv_enc="$priv_p"
                         fi
+                        # Phase 2.6.0/2.6.3: si el cifrado falló (binario crashea con
+                        # segfault, no es ejecutable, devuelve error, etc.),
+                        # NO degradamos a texto plano (eso filtra contraseñas
+                        # en connection.config). Mejor abortar la instalación
+                        # con un mensaje claro: el operador debe re-descargar
+                        # el binario o reportar el bug.
+                        #
+                        # Casos de fallo:
+                        #   - binario no existe / no es ejecutable (-x falla)
+                        #   - binario crashea con segfault (output vacío)
+                        #   - binario devolvió el plain sin cifrar
+                        #   - output no empieza con $enc$ (token inválido)
+                        #
+                        # Phase 2.6.3: la condición de fallo es INDEPENDIENTE
+                        # de `-x` (porque el operador podría tener un binario
+                        # en el directorio actual sin permisos; el instalador
+                        # debe detectarlo y abortar, no degradar a plano).
+                        if [[ -n "$auth_p" ]]; then
+                            if [[ ! -x "$relay_bin" ]]; then
+                                log_message "ERROR" "Binario $relay_bin no es ejecutable. Se ABORTA la instalación para no persistir contraseñas SNMPv3 en claro."
+                                log_message "ERROR" "Causa probable: el binario no tiene permisos de ejecución (chmod +x)."
+                                log_message "ERROR" "Solución: sudo chmod +x $relay_bin && re-ejecutar el instalador, o eliminar el binario y dejar que el instalador lo descargue de GCP."
+                                exit 1
+                            fi
+                            if [[ -z "$auth_enc" || "$auth_enc" == "$auth_p" || "$auth_enc" != \$enc\$2\$* ]]; then
+                                log_message "ERROR" "Fallo al cifrar ${config_key}_v3_auth_password (output='$auth_enc'). Se ABORTA la instalación para no persistir contraseñas en claro."
+                                log_message "ERROR" "Posibles causas: binario incompatible con la arquitectura, .salt corrupto, o segfault (ver /tmp/ness_relay_install.log)."
+                                log_message "ERROR" "Solución: rm -rf /etc/ness_relay /opt/ness_relay && volver a ejecutar el comando de instalación."
+                                exit 1
+                            fi
+                        fi
+                        if [[ -n "$priv_p" ]]; then
+                            if [[ ! -x "$relay_bin" ]]; then
+                                log_message "ERROR" "Binario $relay_bin no es ejecutable. Se ABORTA la instalación para no persistir contraseñas SNMPv3 en claro."
+                                log_message "ERROR" "Solución: sudo chmod +x $relay_bin && re-ejecutar el instalador, o eliminar el binario y dejar que el instalador lo descargue de GCP."
+                                exit 1
+                            fi
+                            if [[ -z "$priv_enc" || "$priv_enc" == "$priv_p" || "$priv_enc" != \$enc\$2\$* ]]; then
+                                log_message "ERROR" "Fallo al cifrar ${config_key}_v3_priv_password (output='$priv_enc'). Se ABORTA la instalación."
+                                log_message "ERROR" "Posible causa: segfault del binario (ver /tmp/ness_relay_install.log)."
+                                log_message "ERROR" "Solución: rm -rf /etc/ness_relay /opt/ness_relay && volver a ejecutar el comando de instalación."
+                                exit 1
+                            fi
+                        fi
                         echo "${config_key}_v3_user=${DEVICE_CONFIGS[${config_key}_v3_user]}"
                         echo "${config_key}_v3_auth_protocol=${DEVICE_CONFIGS[${config_key}_v3_auth_protocol]}"
                         echo "${config_key}_v3_auth_password=${auth_enc}"
@@ -2145,13 +2841,33 @@ generate_config_file() {
                     # claves `_ssh_*` en `DEVICE_CONFIGS`. Bug previo: este
                     # bloque no existía; las credenciales SSH recolectadas
                     # nunca se persistían a connection.config.
+                    #
+                    # Phase 2.6.4: verificar también que _password_env
+                    # tenga un valor real. Antes, en silent mode +
+                    # bundle con _enabled=true pero _password_env=""
+                    # (caso típico: collect_ssh_credentials no corrió
+                    # en silent), se escribía `*_ssh_password_env=` con
+                    # valor vacío, lo que dejaba el config roto.
                     # ────────────────────────────────────────────────────
-                    if [[ "${DEVICE_CONFIGS[${config_key}_ssh_enabled]:-}" == "true" ]]; then
+                    if [[ "${DEVICE_CONFIGS[${config_key}_ssh_enabled]:-}" == "true" \
+                        && -n "${DEVICE_CONFIGS[${config_key}_ssh_password_env]:-}" ]]; then
                         echo "# SSH audit (Phase 2.4)"
                         echo "${config_key}_ssh_enabled=true"
                         echo "${config_key}_ssh_username=${DEVICE_CONFIGS[${config_key}_ssh_username]}"
                         echo "${config_key}_ssh_port=${DEVICE_CONFIGS[${config_key}_ssh_port]}"
                         echo "${config_key}_ssh_password_env=${DEVICE_CONFIGS[${config_key}_ssh_password_env]}"
+                    elif [[ "${DEVICE_CONFIGS[${config_key}_ssh_enabled]:-}" == "true" \
+                        && -n "${DEVICE_CONFIGS[${config_key}_ssh_password_plain]:-}" ]]; then
+                        # Phase 2.6.4: el bundle tiene _plain (caso
+                        # wizard web con audit). NO emitir
+                        # _password_env= (porque todavía no está
+                        # cifrado). El _plain se cifra después en
+                        # `apply_audit_to_bundle`.
+                        echo "# SSH audit (Phase 2.6.4 — bundle firmado, cifrado pendiente)"
+                        echo "${config_key}_ssh_enabled=true"
+                        echo "${config_key}_ssh_username=${DEVICE_CONFIGS[${config_key}_ssh_username]:-admin}"
+                        echo "${config_key}_ssh_port=${DEVICE_CONFIGS[${config_key}_ssh_port]:-22}"
+                        echo "${config_key}_ssh_password_plain=${DEVICE_CONFIGS[${config_key}_ssh_password_plain]}"
                     fi
                 done
                 echo ""
@@ -2240,7 +2956,14 @@ done
 # ═══════════════════════════════════════════════════════════════════════════
 # LEER VARIABLES DE ENTORNO (GUIDED INSTALLATION MODE)
 # ═══════════════════════════════════════════════════════════════════════════
-# Si no se pasó --token, buscar NESS_TOKEN en el entorno (frontend mode)
+# Phase 2.7.0: secret minimisation — PASO 1 (pre-load).
+# En este punto load_config_file aún NO se ha ejecutado, así que
+# BUNDLE_TOKEN y BUNDLE_CRON_INTERVAL están vacíos. Aquí solo
+# aceptamos las fuentes que están disponibles ANTES de leer el bundle:
+#   1. --token=X  (instalación manual)
+#   2. NESS_TOKEN env var (compatibilidad con scripts manuales viejos)
+# El fallback al BUNDLE_TOKEN se hace MÁS ABAJO, justo antes del check
+# "No se proporcionó un token", DESPUÉS de load_config_file.
 if [[ -z "$API_TOKEN" && -n "$NESS_TOKEN" ]]; then
     API_TOKEN="$NESS_TOKEN"
     log_message "INFO" "Token obtenido de variable de entorno NESS_TOKEN"
@@ -2260,24 +2983,45 @@ if [[ -n "$NESS_SERVER_ID" ]]; then
 fi
 
 # Permitir que el frontend pase una URL temporal de connection.config.
-if [[ -z "$CONFIG_FILE" && -n "$NESS_DEVICES_FILE_URL" ]]; then
-    CONFIG_FILE="$NESS_DEVICES_FILE_URL"
+#
+# Phase 2.6.4: el chequeo antes era `[[ -z "$CONFIG_FILE" && -n "$NESS_DEVICES_FILE_URL" ]]`,
+# pero en los comandos del wizard (curl ... | sudo NESS_DEVICES_FILE_URL=... NESS_TOKEN=... bash)
+# el operador también pasa `--config-file` por seguridad, lo que hacía
+# que `CONFIG_FILE` ya tuviera un valor y el bloque NUNCA corriera,
+# dejando `GUIDED_MODE=false`. Por eso el flag se chequea solo con
+# `NESS_DEVICES_FILE_URL` (la env var es la fuente de verdad del wizard).
+if [[ -n "$NESS_DEVICES_FILE_URL" ]]; then
+    if [[ -z "$CONFIG_FILE" ]]; then
+        CONFIG_FILE="$NESS_DEVICES_FILE_URL"
+    fi
     SILENT_MODE=true
     GUIDED_MODE=true
     log_message "INFO" "Configuración de dispositivos obtenida desde NESS_DEVICES_FILE_URL"
 fi
 
 # Capturar NESS_TIME si está disponible (para auto-configurar cron, en minutos)
+# Phase 2.7.0: secret minimisation. NESS_TIME ya NO se envía como env var;
+# el intervalo de cron viene del bundle (bundle_cron_interval). Orden:
+#   1. NESS_TIME env var (compat)
+#   2. BUNDLE_CRON_INTERVAL del config firmado (nuevo)
 if [[ -n "$NESS_TIME" ]]; then
     CRON_INTERVAL="$NESS_TIME"
     log_message "INFO" "Intervalo de ejecución solicitado: $NESS_TIME minutos"
+elif [[ -n "$BUNDLE_CRON_INTERVAL" ]]; then
+    CRON_INTERVAL="$BUNDLE_CRON_INTERVAL"
+    log_message "INFO" "Intervalo de ejecución (Phase 2.7.0 — bundle firmado): $BUNDLE_CRON_INTERVAL minutos"
 fi
 
 # Activar modo guiado automáticamente cuando llegan variables del frontend
+# Phase 2.6.0: el frontend ya NO envía las env vars individuales
+# (NESS_RELAY_*, NESS_SSH_*, NESS_AUDIT_*). En su lugar, envía una sola
+# NESS_DEVICES_FILE_URL con un bundle firmado. Si por compatibilidad
+# aún llegan las env vars viejas, las aceptamos como DEPRECATED y
+# advertimos al operador (se eliminarán en v3.1.0).
 if [[ -z "$CONFIG_FILE" && ( "${NESS_GUIDED_INSTALL:-}" == "true" || -n "$NESS_RELAY_DEVICE_IP" ) ]]; then
     GUIDED_MODE=true
     SILENT_MODE=true
-    log_message "INFO" "Modo guiado detectado por variables de entorno"
+    log_message "WARN" "DEPRECATED: NESS_RELAY_*/NESS_SSH_PASSWORD*/NESS_AUDIT_* env vars detectadas. Esta ruta se eliminará en v3.1.0. Migra al wizard con bundle firmado (NESS_DEVICES_FILE_URL)."
     setup_guided_configuration_from_env
 fi
 
@@ -2369,6 +3113,10 @@ fi
 log_message "SUCCESS" "Ejecutable '${BINARY_NAME_SELECTED}' encontrado: ${BINARY_SOURCE}"
 INSTALLED_BINARY_NAME="$BINARY_NAME_SELECTED"
 detect_source_package_dir "$SCRIPT_DIR" "$BINARY_SOURCE"
+
+# Phase 2.6.2: ahora que tenemos latest.json descargado, validar el instalador.
+# Si falla, abortar (instalador manipulado en tránsito).
+self_verify_checksum
 echo ""
 
 ###############################################################################
@@ -2487,8 +3235,17 @@ if [[ "$SILENT_MODE" != "true" ]]; then
         log_message "INFO" "Smart Tester pre-flight omitido por el usuario"
     fi
 else
-    log_message "PROGRESS" "Modo silencioso: ejecutando Smart Tester pre-flight no interactivo..."
-    "$BINARY_SOURCE" --verify-setup --verify-auto-fix --verify-assume-yes || true
+    # Phase 2.7.1: en modo silencioso (instalación wizard / bulk) NO
+    # ejecutamos el Smart Tester pre-flight porque:
+    #   1. Corre ANTES de cargar el connection.config firmado, así que
+    #      no puede validar Fase C (SNMP) ni Fase D — sale con
+    #      "Sin dispositivos configurados" en todas las fases, lo
+    #      cual solo genera ruido en el log.
+    #   2. El Smart Tester Deep Validation corre inmediatamente DESPUÉS
+    #      con el connection.config ya en disco — esa es la validación
+    #      útil (la que tiene devices reales para probar).
+    #   3. En modo interactivo el operador puede decidir (default Y).
+    log_message "INFO" "Modo silencioso: omitiendo Smart Tester pre-flight (se ejecutará Deep Validation tras cargar el config firmado)"
 fi
 
 ###############################################################################
@@ -2879,10 +3636,26 @@ if [[ -n "$CRON_INTERVAL" && "$CRON_INTERVAL" =~ ^[0-9]+$ ]]; then
     if (( CRON_INTERVAL <= 10 )); then
         FINAL_CRON="*/$CRON_INTERVAL * * * *"
     elif (( CRON_INTERVAL <= 60 )); then
-        local_interval=$(( (CRON_INTERVAL + 4) / 5 ))
-        FINAL_CRON="*/$local_interval * * * *"
+        # Phase 2.7.0: usar valores válidos de cron (los que dividen 60).
+        # 60 divisores: 1,2,3,4,5,6,10,12,15,20,30,60.
+        case "$CRON_INTERVAL" in
+            12|15|20|30) FINAL_CRON="*/$CRON_INTERVAL * * * *" ;;
+            *)
+                local_interval=5
+                for v in 30 20 15 12 10 6 5 4 3 2 1; do
+                    if (( CRON_INTERVAL >= v )); then
+                        local_interval="$v"
+                        break
+                    fi
+                done
+                FINAL_CRON="*/$local_interval * * * *"
+                ;;
+        esac
     else
         local_hours=$(( (CRON_INTERVAL + 59) / 60 ))
+        if (( local_hours > 24 )); then
+            local_hours=24
+        fi
         FINAL_CRON="0 */$local_hours * * *"
     fi
     CRON_AUTO_CONFIGURED="true"
@@ -2899,13 +3672,13 @@ if [[ "$UPDATE_ONLY_MODE" == "true" ]]; then
     if [[ -f "/etc/profile.d/ness_relay.sh" ]]; then
         log_message "PROGRESS" "Leyendo configuración existente de /etc/profile.d/ness_relay.sh..."
         source /etc/profile.d/ness_relay.sh
-        
+
         # Cargar token y server ID del archivo de entorno
         if [[ -n "$NESS_API_TOKEN" ]]; then
             API_TOKEN="$NESS_API_TOKEN"
             log_message "SUCCESS" "Token cargado desde configuración existente"
         fi
-        
+
         if [[ -n "$NESS_SERVER_ID" ]]; then
             SERVER_ENV="$NESS_SERVER_ID"
             log_message "SUCCESS" "Server ID cargado desde configuración existente: $SERVER_ENV"
@@ -2913,6 +3686,79 @@ if [[ "$UPDATE_ONLY_MODE" == "true" ]]; then
     else
         log_message "WARNING" "No se encontró configuración existente en /etc/profile.d/ness_relay.sh"
     fi
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 2.7.0: secret minimisation — PASO 2 (post-load).
+# En este punto load_config_file YA se ejecutó y, si vino un bundle
+# firmado, ya tenemos BUNDLE_TOKEN y BUNDLE_CRON_INTERVAL cargados.
+# Aquí aplicamos el fallback final antes del check "No se proporcionó
+# un token":
+#   3. BUNDLE_TOKEN del config firmado (modo wizard, nuevo)
+# Si NINGUNA fuente tiene token, el check de abajo falla con un
+# mensaje claro indicando las 3 opciones.
+if [[ -z "$API_TOKEN" && -n "$BUNDLE_TOKEN" ]]; then
+    API_TOKEN="$BUNDLE_TOKEN"
+    log_message "INFO" "Token obtenido del bundle firmado (Phase 2.7.0 secret minimisation)"
+fi
+# Mismo fallback para el intervalo de cron. NOTA: el primer fallback
+# (línea ~2851) corre ANTES de load_config_file, cuando BUNDLE_CRON_INTERVAL
+# está vacío. Si NESS_TIME no llega (modo wizard nuevo), ese primer
+# fallback no asigna nada. Aquí, después de load_config_file, ya podemos
+# usar BUNDLE_CRON_INTERVAL como fuente válida.
+if [[ -z "$CRON_INTERVAL" && -n "$BUNDLE_CRON_INTERVAL" ]]; then
+    CRON_INTERVAL="$BUNDLE_CRON_INTERVAL"
+    log_message "INFO" "Intervalo de cron (Phase 2.7.0 — bundle firmado): $BUNDLE_CRON_INTERVAL minutos"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 2.7.0: re-evaluar CRON_AUTO_CONFIGURED y FINAL_CRON DESPUÉS de
+# load_config_file. El bloque "AUTO-CONFIGURAR CRON DESDE NESS_TIME" corre
+# en la línea ~3470, ANTES de que BUNDLE_CRON_INTERVAL se asigne vía
+# load_config_file. Esto dejaba el cron de SNMP en */5 (default) aunque
+# el bundle viniera con bundle_cron_interval=15. Re-evaluamos aquí para
+# que el bundle firmado sea la fuente de verdad.
+# ═══════════════════════════════════════════════════════════════════════════
+if [[ -n "$CRON_INTERVAL" && "$CRON_INTERVAL" =~ ^[0-9]+$ ]]; then
+    if (( CRON_INTERVAL <= 10 )); then
+        # Caso simple: */N para N <= 10 (N=1, 2, 3, 5, 10)
+        FINAL_CRON="*/$CRON_INTERVAL * * * *"
+    elif (( CRON_INTERVAL <= 60 )); then
+        # Caso medio: el cron de Linux solo acepta */N donde N divide 60.
+        # 60 divisores: 1,2,3,4,5,6,10,12,15,20,30,60.
+        # Si CRON_INTERVAL es exactamente uno de esos, usarlo. Si no,
+        # redondear al múltiplo de 5 inferior que SÍ divide 60.
+        # Ej: 15 → */15 (60/15=4 OK)
+        #     12 → */12 (60/12=5 OK)
+        #     18 → */15 (60/15=4, múltiplo inferior)
+        #     45 → */15 (60/15=4, múltiplo inferior)
+        case "$CRON_INTERVAL" in
+            12|15|20|30) FINAL_CRON="*/$CRON_INTERVAL * * * *" ;;
+            *)
+                # Redondear al múltiplo inferior de los válidos
+                local_interval=5
+                for v in 30 20 15 12 10 6 5 4 3 2 1; do
+                    if (( CRON_INTERVAL >= v )); then
+                        local_interval="$v"
+                        break
+                    fi
+                done
+                FINAL_CRON="*/$local_interval * * * *"
+                ;;
+        esac
+    else
+        # Caso horas: 0 */N (para N que divide 24)
+        local_hours=$(( (CRON_INTERVAL + 59) / 60 ))
+        if (( local_hours > 24 )); then
+            local_hours=24
+        fi
+        FINAL_CRON="0 */$local_hours * * *"
+    fi
+    CRON_AUTO_CONFIGURED="true"
+    log_message "INFO" "Phase 2.7.0: cron re-evaluado desde bundle → $FINAL_CRON (CRON_INTERVAL=${CRON_INTERVAL}min)"
+else
+    CRON_AUTO_CONFIGURED="false"
+    FINAL_CRON="0 3 * * *"
 fi
 
 # Verificar token en modo silencioso
@@ -2947,10 +3793,66 @@ if [[ "$SILENT_MODE" != "true" ]]; then
 fi
 
 ###############################################################################
+# DETECCIÓN DE INSTALACIÓN PREVIA INSEGURA (Phase 2.6.2)
+###############################################################################
+# Si existe un connection.config con passwords SNMPv3 en plano (sin
+# prefijo $enc$2$), es probable que la instalación anterior falló con
+# segfault del binario y dejó credenciales sin cifrar. En modo silent,
+# forzamos limpieza automática para evitar que se preserve el estado
+# inseguro al "actualizar".
+INSTALL_DIR="/opt/ness_relay"
+# Phase 2.7.2: asegurar que los directorios del SO que necesitamos
+# existan ANTES de hacer nada. Idempotente: si ya existen, no hace
+# nada; si faltan, los crea con mkdir -p y emite un WARNING.
+# (Ver ensure_dir arriba para la política de directorios permitidos.)
+ensure_dir "/opt/ness_relay" 2>/dev/null || exit 1
+ensure_dir "/etc/ness_relay" 2>/dev/null || exit 1
+if [[ -d "$INSTALL_DIR" && -f "$INSTALL_DIR/configs/connection.config" ]]; then
+    if grep -qE '^[a-z_]+_[0-9]+_v3_(auth|priv)_password=[^$]' "$INSTALL_DIR/configs/connection.config"; then
+        log_message "WARNING" "Detectado connection.config con credenciales SNMPv3 en plano (instalación previa probablemente falló con segfault del binario)"
+        if [[ "$SILENT_MODE" == "true" || "$FORCE_INSTALL" == "true" ]]; then
+            log_message "WARNING" "Modo silent/force: eliminando instalación insegura automáticamente"
+            rm -rf "$INSTALL_DIR" /etc/ness_relay /etc/profile.d/ness_relay.sh
+            log_message "SUCCESS" "Instalación previa insegura eliminada"
+        else
+            echo ""
+            echo -e "${YELLOW}${BOLD}  ⚠ INSTALACIÓN PREVIA INSEGURA DETECTADA${NC}"
+            echo -e "${WHITE}  El connection.config anterior tiene contraseñas SNMPv3 en plano.${NC}"
+            echo -e "${WHITE}  Esto suele pasar cuando el binario hizo segfault durante la instalación.${NC}"
+            echo ""
+            echo -e "${WHITE}  Para evitar preservar estas contraseñas, se recomienda: REINSTALAR.${NC}"
+            echo -ne "${BOLD}¿Reinstalar limpiamente? (Y/n): ${NC}"
+            read reinstall_response
+            if [[ ! "$reinstall_response" =~ ^[Nn]$ ]]; then
+                log_message "PROGRESS" "Eliminando instalación insegura..."
+                rm -rf "$INSTALL_DIR" /etc/ness_relay /etc/profile.d/ness_relay.sh
+                log_message "SUCCESS" "Instalación previa eliminada"
+            else
+                log_message "WARNING" "Manteniendo instalación insegura (no recomendado)"
+            fi
+        fi
+    fi
+fi
+
+###############################################################################
 # GESTIÓN DE INSTALACIÓN EXISTENTE
 ###############################################################################
 INSTALL_DIR="/opt/ness_relay"
-if [[ -d "$INSTALL_DIR" && "$FORCE_INSTALL" != "true" ]]; then
+# Phase 2.7.2-fix: el check de "INSTALACIÓN EXISTENTE" debe considerar
+# la presencia de una instalación PREVIA COMPLETA, no solo el directorio.
+# Si el operador acaba de hacer `rm -rf /opt/ness_relay` y el script
+# corre, las líneas `ensure_dir "/opt/ness_relay"` de arriba CREAN el
+# directorio (silenciosamente) — pero eso NO es una instalación previa.
+# Una instalación previa real implica que el binario O el connection.config
+# ya están en su sitio. Sin este check adicional, CADA install limpio
+# mostraba el mensaje "INSTALACIÓN EXISTENTE DETECTADA" y creaba un
+# backup vacío, confundiendo al operador.
+EXISTING_INSTALL_MARKERS=0
+[[ -x "$INSTALL_DIR/executables/$INSTALLED_BINARY_NAME" ]] && EXISTING_INSTALL_MARKERS=$((EXISTING_INSTALL_MARKERS + 1))
+[[ -x "$INSTALL_DIR/executables/ness-relay" ]] && EXISTING_INSTALL_MARKERS=$((EXISTING_INSTALL_MARKERS + 1))
+[[ -f "$INSTALL_DIR/configs/connection.config" ]] && EXISTING_INSTALL_MARKERS=$((EXISTING_INSTALL_MARKERS + 1))
+
+if [[ "$EXISTING_INSTALL_MARKERS" -gt 0 && "$FORCE_INSTALL" != "true" ]]; then
     # En modo actualización, salta menú y va directo a actualizar binarios
     if [[ "$UPDATE_ONLY_MODE" == "true" ]]; then
         log_message "INFO" "Modo actualización (--update-only): actualizando binarios existentes"
@@ -3101,6 +4003,17 @@ fi
 ###############################################################################
 ENV_FILE="/etc/profile.d/ness_relay.sh"
 
+# Phase 2.7.2: asegurar /etc/profile.d/ existe antes de escribir el
+# env file. Sin esto, si el operador borró /etc/profile.d/ (como
+# pasó en la prueba del 2026-07-13), el `>` redirection crea un
+# archivo regular en /etc/ (que es un error grave) en vez de
+# crear el directorio. Ver bug: el env file quedaba pero el
+# `source` y `chmod` posteriores fallaban silenciosamente.
+ensure_dir "/etc/profile.d" 2>/dev/null || {
+    log_message "ERROR" "FATAL: No se pudo crear /etc/profile.d/. Abortando instalación para evitar corrupción de /etc/."
+    exit 1
+}
+
 # En modo update-only, usar valores preservados si están disponibles
 if [[ "$UPDATE_ONLY_MODE" == "true" ]]; then
     [[ -n "$PRESERVED_SERVER_ID" ]] && SERVER_ENV="$PRESERVED_SERVER_ID"
@@ -3185,11 +4098,39 @@ generate_config_file
 # Esto evita que el usuario tenga que conocer el vendor de antemano — la
 # fuente de verdad es lo que el binario detecta por SNMP.
 #
-# En modo silent: skip (el opt-in audit no aplica sin consentimiento).
 # En modo update-only: skip (preserva el config existente).
-if [[ "${UPDATE_ONLY_MODE:-false}" != "true" && "${ENABLE_AUDIT:-false}" == "true" ]]; then
+# En cualquier otro caso (silent mode, guided install, interactive con
+# o sin audit), corremos el probe para que el binario reemplace el
+# `generic_*` por el vendor real (`fortinet_*`, `cisco_*`, etc.) cuando
+# sea posible.
+#
+# Phase 2.6.1: el bug previo era que `post_install_probe_devices` solo
+# corría si `ENABLE_AUDIT=true`. Esto dejaba el config con `generic_*`
+# incluso cuando el dispositivo era claramente un FortiGate. Ahora
+# corre siempre (excepto en --update-only).
+if [[ "${UPDATE_ONLY_MODE:-false}" != "true" ]]; then
     post_install_probe_devices
 fi
+
+# Phase 2.6.0 — Cifrar credenciales SSH del bundle firmado.
+# Esta llamada se hace SIEMPRE (no solo cuando ENABLE_AUDIT=true) porque
+# la presencia de `*_ssh_password_plain` en DEVICE_CONFIGS indica que el
+# bundle vino del wizard con audit. El bundle firmado es nuestra única
+# fuente de verdad para el audit en single-device.
+apply_audit_to_bundle "$INSTALL_DIR"
+
+# Phase 2.6.4: el `schedule_audit_cron` se ha movido al bloque "CREAR
+# SCRIPT DE AUDITORÍA" más abajo (justo después de crear
+# `audit_relay.sh`). Antes se llamaba aquí, pero `audit_relay.sh`
+# todavía no existía y siempre se saltaba con "no existe, se omite".
+# Ahora `schedule_audit_cron` corre solo si (a) el bundle tiene
+# `audit_interval=` y (b) `audit_relay.sh` fue creado.
+BUNDLE_AUDIT_INTERVAL=""
+if [[ -f "$INSTALL_DIR/configs/connection.config" ]]; then
+    BUNDLE_AUDIT_INTERVAL="$(grep -E '^audit_interval=' "$INSTALL_DIR/configs/connection.config" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '[:space:]')"
+fi
+# Exportamos BUNDLE_AUDIT_INTERVAL para usarlo después.
+export BUNDLE_AUDIT_INTERVAL
 
 ###############################################################################
 # SMART TESTER DEEP VALIDATION (CON CONNECTION.CONFIG)
@@ -3282,6 +4223,25 @@ log_message "SUCCESS" "Script de protección creado: $VIEW_CONFIG_SCRIPT"
 chmod 600 "$INSTALL_DIR/configs/connection.config"
 log_message "SUCCESS" "Permisos de seguridad aplicados a connection.config (600 — solo root)"
 
+# Phase 2.7.0: secret minimisation. El bundle firmado trae
+# `bundle_token=` y `bundle_cron_interval=` al inicio del config.
+# Esos valores YA se leyeron (BUNDLE_TOKEN / BUNDLE_CRON_INTERVAL),
+# así que SANITIZAMOS el archivo en disco para que NUNCA queden
+# copias de tokens / secretos en connection.config (que aunque
+# tiene chmod 600, también se loguea y se lista en varios reportes).
+# Esto incluye el caso de bulk upload (varios devices) y el
+# single-device wizard.
+if [[ -f "$INSTALL_DIR/configs/connection.config" ]]; then
+    pre_sanitize_lines=$(wc -l < "$INSTALL_DIR/configs/connection.config")
+    sed -i.bak2 \
+        -e '/^bundle_token=/d' \
+        -e '/^bundle_cron_interval=/d' \
+        "$INSTALL_DIR/configs/connection.config"
+    rm -f "$INSTALL_DIR/configs/connection.config.bak2"
+    post_sanitize_lines=$(wc -l < "$INSTALL_DIR/configs/connection.config")
+    log_message "INFO" "Phase 2.7.0: sanitizadas claves secretas del bundle en connection.config (${pre_sanitize_lines} → ${post_sanitize_lines} líneas)"
+fi
+
 ###############################################################################
 # CREAR SCRIPT DE EJECUCIÓN (run_relay.sh)
 ###############################################################################
@@ -3373,7 +4333,29 @@ log_message "SUCCESS" "Script de auto-actualización creado: $UPDATE_SCRIPT"
 # Solo se crea y registra cuando NESS_AUDIT_ENABLED=true. El binario se
 # invoca con --audit; el opt-in gate (NESS_AUDIT_ENABLED) vive en main.rs.
 AUDIT_SCRIPT="$INSTALL_DIR/executables/audit_relay.sh"
-AUDIT_CRON_EXPR="0 */6 * * *"
+
+# Phase 2.7.0: el audit_interval viene del bundle firmado (campo
+# `audit_interval=` en connection.config). Si NO viene del bundle,
+# usamos el default 6h (21600s). ANTES: AUDIT_CRON_EXPR estaba
+# hardcodeado a "0 */6 * * *", ignorando el audit_interval del bundle
+# (12h, 24h, etc.). Esto causaba que el cron final quedara en 6h aunque
+# el operador hubiera seleccionado 12h o 24h en el wizard.
+AUDIT_CRON_EXPR_DEFAULT="0 */6 * * *"
+if [[ -n "${BUNDLE_AUDIT_INTERVAL:-}" ]]; then
+    case "${BUNDLE_AUDIT_INTERVAL}" in
+        21600) AUDIT_CRON_EXPR="0 */6 * * *" ;;
+        43200) AUDIT_CRON_EXPR="0 */12 * * *" ;;
+        86400) AUDIT_CRON_EXPR="0 */24 * * *" ;;
+        *)
+            log_message "WARN" "audit_interval=${BUNDLE_AUDIT_INTERVAL} fuera de rango (6/12/24h). Usando 6h."
+            AUDIT_CRON_EXPR="$AUDIT_CRON_EXPR_DEFAULT"
+            ;;
+    esac
+    log_message "INFO" "Phase 2.7.0: AUDIT_CRON_EXPR desde bundle → $AUDIT_CRON_EXPR (audit_interval=${BUNDLE_AUDIT_INTERVAL}s)"
+else
+    AUDIT_CRON_EXPR="$AUDIT_CRON_EXPR_DEFAULT"
+    log_message "INFO" "AUDIT_CRON_EXPR default (sin bundle): $AUDIT_CRON_EXPR"
+fi
 
 # Phase 2.16: `audit_relay.sh` SOLO se crea si el operador aceptó
 # explícitamente activar el análisis de vulnerabilidades (ENABLE_AUDIT=true).
@@ -3381,7 +4363,49 @@ AUDIT_CRON_EXPR="0 */6 * * *"
 #   - No hay tarea en crontab que intente ejecutar SSH cada 6h.
 #   - No hay forma accidental de mandar hallazgos de vulns/CIS al servidor.
 #   - El operador puede activarlo después reinstalando con respuesta "y".
-if [[ "${ENABLE_AUDIT:-false}" == "true" ]]; then
+#
+# Phase 2.6.4: en la instalación guiada (silent mode) el prompt
+# `prompt_audit_optin` siempre devuelve "false" (porque no hay TTY para
+# preguntar). Por eso también aceptamos el `audit_enabled=true` que
+# viene en el bundle firmado: si el operador marcó el checkbox de
+# auditoría en el wizard, el bundle lo trae y debemos respetarlo.
+# Sin esto, la instalación guiada NUNCA activa la auditoría aunque
+# el operador haya marcado el checkbox.
+BUNDLE_AUDIT_ENABLED="false"
+# Phase 2.6.4: revisar primero DEVICE_CONFIGS (memoria) que es la fuente
+# de verdad desde que se cargó el bundle. Si no está ahí, mirar el
+# config en disco (por si se regeneró).
+if [[ -n "${DEVICE_CONFIGS[audit_enabled]:-}" ]]; then
+    BUNDLE_AUDIT_ENABLED="${DEVICE_CONFIGS[audit_enabled]}"
+elif [[ -f "$INSTALL_DIR/configs/connection.config" ]]; then
+    BUNDLE_AUDIT_ENABLED="$(grep -E '^audit_enabled=' "$INSTALL_DIR/configs/connection.config" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '[:space:]')"
+fi
+# BUNDLE_AUDIT_INTERVAL también desde DEVICE_CONFIGS primero
+if [[ -z "${BUNDLE_AUDIT_INTERVAL:-}" && -n "${DEVICE_CONFIGS[audit_interval]:-}" ]]; then
+    export BUNDLE_AUDIT_INTERVAL="${DEVICE_CONFIGS[audit_interval]}"
+fi
+if [[ "${ENABLE_AUDIT:-false}" == "true" || "$BUNDLE_AUDIT_ENABLED" == "true" ]]; then
+    # Propagar al env file para que el binario y futuras corridas
+    # vean NESS_AUDIT_ENABLED=true. Si veníamos de silent + bundle, no
+    # había prompt y el env file quedó con NESS_AUDIT_ENABLED=false.
+    if [[ -f "$ENV_FILE" ]]; then
+        sed -i.bak "s|^export NESS_AUDIT_ENABLED=.*|export NESS_AUDIT_ENABLED=\"true\"|" "$ENV_FILE" 2>/dev/null
+        rm -f "${ENV_FILE}.bak"
+        export NESS_AUDIT_ENABLED="true"
+        log_message "INFO" "NESS_AUDIT_ENABLED propagado a true (audit habilitado vía bundle firmado)"
+    fi
+    # Phase 2.6.4: persistir audit_enabled=true y audit_interval=N al
+    # config en disco (por si el awk de reconcile_vendor_counters los
+    # borró). Esto garantiza que el config final tiene los datos del
+    # audit, y que `schedule_audit_cron` los puede leer.
+    if [[ -f "$INSTALL_DIR/configs/connection.config" ]]; then
+        if [[ "$BUNDLE_AUDIT_ENABLED" == "true" ]] && ! grep -qE '^audit_enabled=' "$INSTALL_DIR/configs/connection.config"; then
+            sed -i '1i audit_enabled=true' "$INSTALL_DIR/configs/connection.config"
+        fi
+        if [[ -n "${BUNDLE_AUDIT_INTERVAL:-}" ]] && ! grep -qE '^audit_interval=' "$INSTALL_DIR/configs/connection.config"; then
+            sed -i '1i audit_interval='"${BUNDLE_AUDIT_INTERVAL}" "$INSTALL_DIR/configs/connection.config"
+        fi
+    fi
     {
         echo "#!/bin/bash"
         echo "#"
@@ -3416,9 +4440,16 @@ if [[ "${ENABLE_AUDIT:-false}" == "true" ]]; then
         # NESS_SSH_PASSWORD_* en su shell (modo legacy), se respetan como
         # fallback (v2.4.0 compat). Ver `ness-relay migrate-plaintext`
         # para migrar las pass al vault cifrado.
+        #
+        # Phase 2.6.4: cargar también /etc/ness_relay/secrets.env si existe
+        # (caso del fallback cuando el subcomando `ness-relay set` falló en
+        # una instalación previa y se persistió la pass en plano). Sin esto,
+        # el script audit fallaría con "no se pudo descifrar
+        # NESS_SSH_PASSWORD_FORTINET_1" en los bins que NO migraron a vault.
         echo "# (Las pass SSH ahora viven en /etc/ness_relay/secrets.enc y se descifran dentro del binario.)"
-        echo ""
-        echo "cd $INSTALL_DIR"
+        echo "if [[ -f /etc/ness_relay/secrets.env ]]; then"
+        echo "    source /etc/ness_relay/secrets.env"
+        echo "fi"
         echo ""
         # FORZAR cd primero porque si $PWD del shell padre apunta a un dir
         # eliminado (caso típico: el instalador borra /home/.../rust-sentinel al
@@ -3426,19 +4457,36 @@ if [[ "${ENABLE_AUDIT:-false}" == "true" ]]; then
         # FALSE → entraría al modo silent. Con cd explícito restauramos TTY.
         echo "cd $INSTALL_DIR >/dev/null 2>&1 || true"
         echo ""
-        # Mostrar banner solo si stdout es TTY (modo interactivo del operador).
-        # En cron (no TTY) no contaminamos el log.
-        #
-        # TRUCO: usamos `tty -s` en lugar de `[ -t 1 ]` porque tty -s NO depende
-        # del estado del $PWD del shell padre. Es robusto contra dir eliminado.
-        if tty -s 2>/dev/null; then
-            echo "echo -e \"\${YELLOW}Ejecutando auditoría NESS Relay...\${NC}\""
-            echo "echo -e \"\${DIM}  (Ctrl+C para abortar; los hallazgos parciales quedan en disco)\${NC}\""
-            echo "./executables/$INSTALLED_BINARY_NAME --audit --config $INSTALL_DIR/configs/connection.config"
-        else
-            # Modo cron: --silent para no contaminar logs con banners.
-            echo "./executables/$INSTALLED_BINARY_NAME --audit --silent --config $INSTALL_DIR/configs/connection.config"
-        fi
+        # Phase 2.6.4-fix: la detección de TTY debe hacerse en TIEMPO DE EJECUCIÓN,
+        # no en tiempo de instalación. Antes se evaluaba `tty -s` en este script
+        # padre, así que cuando el operador instalaba guiado (curl | sudo bash)
+        # NO había TTY al instalar y la rama --silent quedaba HARDCODED en el
+        # audit_relay.sh generado. Resultado: aunque el operador luego ejecutara
+        # manualmente /opt/ness_relay/executables/audit_relay.sh desde una shell
+        # INTERACTIVA, el binario arrancaba en modo silent (sin banner amarillo,
+        # sin INFO de fases 1-10, sin envíos HTTP visibles) porque el `--silent`
+        # venía hardcoded en el script. Ahora el `if tty -s` y las definiciones
+        # de colores (YELLOW/DIM/NC) viven ADENTRO del script generado, así se
+        # evalúan en cada ejecución (manual o desde cron), garantizando que la
+        # instalación manual y la guiada produzcan exactamente el mismo
+        # comportamiento observable.
+        echo "# Colores para el banner (auto-contenidos, no dependen de \$ENV_FILE)"
+        echo "YELLOW='\\033[1;33m'"
+        echo "DIM='\\033[2m'"
+        echo "NC='\\033[0m'"
+        echo ""
+        echo "# Detectar TTY EN TIEMPO DE EJECUCIÓN (no al instalar):"
+        echo "#   - TTY (operador corre el script a mano) → banner + modo normal"
+        echo "#   - no-TTY (cron u otro no-interactivo)     → --silent para no"
+        echo "#     contaminar el log con banners/INFO"
+        echo "if tty -s 2>/dev/null; then"
+        echo "    echo -e \"\${YELLOW}Ejecutando auditoría NESS Relay...\${NC}\""
+        echo "    echo -e \"\${DIM}  (Ctrl+C para abortar; los hallazgos parciales quedan en disco)\${NC}\""
+        echo "    ./executables/$INSTALLED_BINARY_NAME --audit --config $INSTALL_DIR/configs/connection.config"
+        echo "else"
+        echo "    # Modo cron: --silent para no contaminar logs con banners."
+        echo "    ./executables/$INSTALLED_BINARY_NAME --audit --silent --config $INSTALL_DIR/configs/connection.config"
+        echo "fi"
         echo "EXIT_CODE=\$?"
         # Cambio Phase 2.4 — audit_local_first: si NESS_AUDIT_LOCAL_ONLY=true,
         # exit code distinto de 0 NO se considera error fatal (puede ser un fallo
@@ -3456,6 +4504,12 @@ if [[ "${ENABLE_AUDIT:-false}" == "true" ]]; then
     } > "$AUDIT_SCRIPT"
     chmod +x "$AUDIT_SCRIPT"
     log_message "SUCCESS" "Script de auditoría creado: $AUDIT_SCRIPT"
+
+    # Phase 2.6.4: programar el cron de audit AHORA que audit_relay.sh existe.
+    # Antes se llamaba antes de crear el script y siempre se saltaba.
+    if [[ -n "${BUNDLE_AUDIT_INTERVAL:-}" ]]; then
+        schedule_audit_cron "$INSTALL_DIR" "$BUNDLE_AUDIT_INTERVAL"
+    fi
 else
     # ENABLE_AUDIT=false → el operador NO quiere escaneo de vulnerabilidades.
     # Importante: si existe un audit_relay.sh de una instalación PREVIA,
@@ -3514,10 +4568,11 @@ EXISTING_CRON="$(crontab -l 2>/dev/null | grep -v "$RUN_SCRIPT" | grep -v "$UPDA
 
 # Construir las nuevas entradas de cron. La línea de auditoría es
 # condicional: solo se registra si NESS_AUDIT_ENABLED=true quedó en true
-# tras el prompt.
+# tras el prompt. Phase 2.6.4: también si BUNDLE_AUDIT_ENABLED=true
+# (caso del bundle firmado en instalación guiada silent).
 CRON_NEW_ENTRIES="$CRON_EXPR $RUN_SCRIPT"$'\n'"$CRON_EXPR $UPDATE_SCRIPT"
 
-if [[ "${ENABLE_AUDIT:-false}" == "true" ]]; then
+if [[ "${ENABLE_AUDIT:-false}" == "true" || "${BUNDLE_AUDIT_ENABLED:-false}" == "true" ]]; then
     CRON_NEW_ENTRIES="$CRON_NEW_ENTRIES"$'\n'"$AUDIT_CRON_EXPR $AUDIT_SCRIPT"
     SCHEDULE_LABEL="$SCHEDULE_LABEL + auditoría cada 6h"
 fi
@@ -3575,7 +4630,14 @@ if [[ "$SILENT_MODE" != "true" ]]; then
             source /etc/ness_relay/secrets.env
         fi
         cd "$INSTALL_DIR"
-        if [[ "${ENABLE_AUDIT:-false}" == "true" ]]; then
+        # Phase 2.6.4: en la instalación guiada (silent mode) el prompt
+        # `prompt_audit_optin` siempre devuelve "false" y ENABLE_AUDIT
+        # queda en "false" aunque el bundle del wizard haya activado el
+        # audit (BUNDLE_AUDIT_ENABLED=true). Sin este OR, la primera
+        # ejecución correría SIN --audit y el operador no vería los
+        # hallazgos de vulnerabilidades/CIS hasta el próximo ciclo
+        # del cron de 6h.
+        if [[ "${ENABLE_AUDIT:-false}" == "true" || "${BUNDLE_AUDIT_ENABLED:-false}" == "true" ]]; then
             echo -e "${CYAN}${BOLD}ℹ Auditoría ACTIVADA — primera ejecución incluirá SNMP + fases 9 y 10 (SSH)${NC}"
             echo ""
             ./executables/$INSTALLED_BINARY_NAME --audit --config "$INSTALL_DIR/configs/connection.config" 2>&1 | tee "$TEST_OUTPUT_FILE"
@@ -3647,11 +4709,30 @@ if [[ "$SILENT_MODE" != "true" ]]; then
     fi
 else
     if [[ "$GUIDED_MODE" == "true" ]]; then
-        echo -e "${WHITE}Modo guiado: ejecutando primera corrida automática del relay...${NC}"
+        # Phase 2.6.4: en la instalación guiada (silent + bundle), si el bundle
+        # tiene audit_enabled=true (BUNDLE_AUDIT_ENABLED=true), correr la
+        # primera ejecución con --audit para validar TODO el flujo (SNMP +
+        # fases 9 y 10 de vulnerabilidades/CIS). Antes corría SIN --audit
+        # porque ENABLE_AUDIT=false (prompt_audit_optin devuelve "false" en
+        # silent mode), lo que dejaba al operador sin ver los hallazgos
+        # hasta el próximo ciclo del cron de 6h.
         FIRST_RUN_OUTPUT_FILE=$(mktemp /tmp/ness_relay_first_run_XXXXXX.log)
         source "$ENV_FILE"
+        # Cargar también secrets.env si existe (necesario para SSH en la
+        # primera ejecución con --audit).
+        if [[ -f /etc/ness_relay/secrets.env ]]; then
+            source /etc/ness_relay/secrets.env
+        fi
         cd "$INSTALL_DIR"
-        ./executables/$INSTALLED_BINARY_NAME --config "$INSTALL_DIR/configs/connection.config" 2>&1 | tee "$FIRST_RUN_OUTPUT_FILE"
+        if [[ "${ENABLE_AUDIT:-false}" == "true" || "${BUNDLE_AUDIT_ENABLED:-false}" == "true" ]]; then
+            echo -e "${WHITE}Modo guiado: ejecutando primera corrida automática del relay (con --audit)...${NC}"
+            echo -e "${CYAN}${BOLD}ℹ Auditoría ACTIVADA — primera ejecución incluirá SNMP + fases 9 y 10 (SSH)${NC}"
+            echo ""
+            ./executables/$INSTALLED_BINARY_NAME --audit --config "$INSTALL_DIR/configs/connection.config" 2>&1 | tee "$FIRST_RUN_OUTPUT_FILE"
+        else
+            echo -e "${WHITE}Modo guiado: ejecutando primera corrida automática del relay...${NC}"
+            ./executables/$INSTALLED_BINARY_NAME --config "$INSTALL_DIR/configs/connection.config" 2>&1 | tee "$FIRST_RUN_OUTPUT_FILE"
+        fi
         FIRST_RUN_EXIT_CODE=${PIPESTATUS[0]}
 
         if [[ $FIRST_RUN_EXIT_CODE -eq 0 ]]; then

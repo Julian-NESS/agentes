@@ -24,7 +24,7 @@ use crate::secrets;
 // CONSTANTES
 // ==============================================================================
 
-pub const RELAY_VERSION: &str = "2.5.8";
+pub const RELAY_VERSION: &str = "3.0.0";
 pub const RELAY_TYPE: &str = "ness-relay";
 pub const MAX_BACKUPS: usize = 5;
 pub const UPDATE_CHECK_INTERVAL_HOURS: u64 = 24;

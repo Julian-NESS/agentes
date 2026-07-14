@@ -1,40 +1,40 @@
 {
-  "version": "3.0.0",
-  "release_date": "2026-05-02",
-  "min_supported": "2.0.0",
-  "installer": {
-    "url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/2.3.0/install_relay.sh",
-    "fileName": "install_relay.sh",
-    "sha256": "1fa14340f4760d9e0f97d12054b1199c0c89a153448f97075f80d1523a53ec08"
-  },
-  "variants": [
-    {
-      "arch": "x86_64",
-      "platform": "linux",
-      "binary": {
-        "url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/2.3.0/ness-relay-x86_64",
-        "fileName": "ness-relay-x86_64",
-        "sha256": "fb7b1656c4bb79bf4e4d7afb49deb10f30c5f0f065cd83489cfa9a075b49c1a9"
-      }
+    "version": "3.0.0",
+    "release_date": "2026-05-02",
+    "min_supported": "2.0.0",
+    "installer": {
+        "url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/3.0.0/install_relay.sh",
+        "fileName": "install_relay.sh",
+        "sha256": "24a2ac187c9a1757c6e4a7b67eb87de92b0e35739ec039ed8584ec67fc63d77b"
     },
-    {
-      "arch": "aarch64",
-      "platform": "linux",
-      "binary": {
-        "url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/2.3.0/ness-relay-aarch64",
-        "fileName": "ness-relay-aarch64",
-        "sha256": "31fcd0b656fd40c0158c6489404ce51d54443c49056a4bd2f0c4a1dd83e592d4"
-      }
-    }
-  ],
-  "changelog": [
-    
-    "NESS Relay v2.3.0 — Multi-arquitectura (x86_64 + aarch64)",
-    "Soporte para instalación guiada desde frontend UI",
-    "Distribución directa de binarios (sin ZIP)",
-    "Variables de entorno: NESS_TOKEN, NESS_TIME, NESS_SERVER_ID, NESS_RELAY_*",
-    "Auto-configuración de cron basada en NESS_TIME",
-    "Resolución de arquitectura automática (x86_64/aarch64)",
-    "Descarga desde GCP con validación SHA-256 para instalador y binario"
-  ]
+    "variants": [
+        {
+            "arch": "x86_64",
+            "platform": "linux",
+            "binary": {
+                "url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/3.0.0/ness-relay-x86_64",
+                "fileName": "ness-relay-x86_64",
+                "sha256": "3b9a299a02d6b251467f584e3b1744f7d33b09118d0cc19ad8d53994557a0973"
+            }
+        },
+        {
+            "arch": "aarch64",
+            "platform": "linux",
+            "binary": {
+                "url": "https://storage.googleapis.com/agent-updates-lab/utilities/relay/3.0.0/ness-relay-aarch64",
+                "fileName": "ness-relay-aarch64",
+                "sha256": "31fcd0b656fd40c0158c6489404ce51d54443c49056a4bd2f0c4a1dd83e592d4"
+            }
+        }
+    ],
+    "changelog": [
+        "NESS Relay v3.0.0 — Multi-arquitectura (x86_64 + aarch64)",
+        "Soporte para instalación guiada desde frontend UI",
+        "Distribución directa de binarios (sin ZIP)",
+        "Variables de entorno: NESS_TOKEN, NESS_TIME, NESS_SERVER_ID, NESS_RELAY_*",
+        "Auto-configuración de cron basada en NESS_TIME",
+        "Resolución de arquitectura automática (x86_64/aarch64)",
+        "Descarga desde GCP con validación SHA-256 para instalador y binario",
+        "Phase 2.6.4-fix: detección de TTY movida a tiempo de ejecución en audit_relay.sh; corrige el --silent hardcoded en instalación guiada (curl|bash)"
+    ]
 }
